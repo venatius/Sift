@@ -168,3 +168,14 @@ The eventual application layout should reflect the selected language and packagi
 ## Phase 1 entry criteria
 
 Before ingestion implementation starts, settle the technology stack and desktop shell, supported OS and formats, library database strategy, app-data location, file identity and scan semantics, and test fixture approach. Phase 1 should then implement folder selection, safe enumeration, persisted inventory, progress, and pause/cancel/resume with acceptance criteria agreed in the roadmap.
+
+## Phase 1 scanner rules
+
+These are deliberately cautious first-version rules. They can be expanded in later phases.
+
+- **Scope:** scans only files below the single folder the user selects.
+- **Read-only:** never opens, reads, or modifies file contents. Only metadata is read: path, size, and modified time.
+- **Links:** does not follow directory symlinks or junctions, so the scan cannot leave the selected folder or loop forever.
+- **Hidden files:** recorded, not skipped. Hidden means the Windows hidden attribute or a name starting with ".".
+- **Errors:** if a file or folder cannot be read, the scanner records the problem and continues with the rest.
+- **Not in Phase 1:** include/exclude rules, multiple roots, file identity tracking, content hashing, and change detection.
