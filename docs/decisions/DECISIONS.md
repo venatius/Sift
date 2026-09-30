@@ -4,7 +4,7 @@ Record decisions that affect product behavior or architecture. Each entry should
 
 ## D-001: Local-only core processing
 
-- **Date:** 2026-09-29
+- **Date:** 2026-09-30
 - **Status:** Accepted product constraint
 - **Decision:** Core media scanning, analysis, indexing, search, and grouping run locally. Media content and library-derived data are not uploaded.
 - **Reason:** Privacy-first product promise and user-provided project direction.
@@ -29,9 +29,10 @@ Record decisions that affect product behavior or architecture. Each entry should
 ## D-004: Library database and derived-data location
 
 - **Date:** 2026-09-29
-- **Status:** Open
-- **Decision needed:** Choose database technology, library portability/backup behavior, default app-data/cache locations, and whether users can move the Sift library database.
-- **Inputs needed:** Expected collection scale, multi-library needs, removable drive behavior, backup expectations, and disk-space budget.
+- **Status:** Accepted for Phase 1 (library portability and backup behavior remain open)
+- **Decision:** Use SQLite and store the database in the user's local application data directory. On Windows, use `%LOCALAPPDATA%\Sift\sift.db`.
+- **Reason:** Keep generated library data out of the source tree and outside folders that Sift scans.
+- **Consequences:** The database remains local to this Windows user account and is not automatically portable with the source folder. Library backup and relocation behavior remain future decisions.
 
 ## D-005: Supported formats and representative collections
 

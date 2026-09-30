@@ -10,7 +10,13 @@ from PySide6.QtWidgets import (
 from . import database
 from .worker import ScanWorker
 
-DB_PATH = str(Path(__file__).resolve().parent.parent / "sift.db")
+LOCAL_APP_DATA = Path(
+    os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")
+)
+SIFT_DATA_DIR = LOCAL_APP_DATA / "Sift"
+SIFT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = str(SIFT_DATA_DIR / "sift.db")
+LEGACY_DB_PATH = str(Path(__file__).resolve().parent.parent / "sift.db")
 
 
 class MainWindow(QMainWindow):
@@ -60,15 +66,23 @@ class MainWindow(QMainWindow):
 
     # ----- setup -----
     def init_database(self):
+        database.migrate_database(LEGACY_DB_PATH, DB_PATH)
         conn = database.connect(DB_PATH)
         database.init_db(conn)
         interrupted = database.mark_interrupted(conn)
+        latest_root = database.get_latest_root(conn)
         conn.close()
+        if latest_root and os.path.isdir(latest_root["path"]):
+            self.folder = latest_root["path"]
+            self.folder_label.setText(self.folder)
+            self.start_btn.setEnabled(True)
         if interrupted:
-            self.status_label.setText(
-                "The previous scan was interrupted. Saved results are kept; "
-                "choose a folder and scan again to refresh them."
-            )
+            message = "The previous scan was interrupted. Saved results are kept."
+            if self.folder:
+                message += " Start again to rescan this folder from the beginning."
+            else:
+                message += " Choose the folder to scan again from the beginning."
+            self.status_label.setText(message)
         self.refresh_saved_count()
 
     def refresh_saved_count(self):
@@ -137,7 +151,14 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.set_scanning(False)
 
-        self.status_label.setText("Scan cancelled" if s["cancelled"] else "Scan finished")
+        if s.get("status") == "failed":
+            self.status_label.setText("Scan failed")
+        elif s["cancelled"]:
+            self.status_label.setText("Scan cancelled")
+        elif s["failed"]:
+            self.status_label.setText("Scan finished with errors")
+        else:
+            self.status_label.setText("Scan finished")
         lines = [
             f"Scanned: {s['scanned']}",
             f"Skipped: {s['skipped']}",

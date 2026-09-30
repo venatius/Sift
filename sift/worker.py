@@ -33,11 +33,12 @@ class ScanWorker(QObject):
 
     def run(self):
         summary = {"scanned": 0, "skipped": 0, "failed": 0, "cancelled": False, "errors": []}
-        conn = database.connect(self.db_path)  # this thread needs its own connection
+        conn = None
         scan_id = None
         final_status = "completed"
         total = 0
         try:
+            conn = database.connect(self.db_path)
             root_id = database.add_root(conn, self.root_path)
             scan_id = database.start_scan(conn, root_id)
             seen_at = time.time()
@@ -69,8 +70,15 @@ class ScanWorker(QObject):
             final_status = "failed"
             summary["errors"].append(("(scan stopped unexpectedly)", str(e)))
         finally:
-            if scan_id is not None:
-                database.finish_scan(conn, scan_id, final_status)
-            conn.close()
+            if conn is not None:
+                try:
+                    if scan_id is not None:
+                        database.finish_scan(conn, scan_id, final_status)
+                except Exception as e:
+                    final_status = "failed"
+                    summary["errors"].append(("(could not save scan status)", str(e)))
+                finally:
+                    conn.close()
 
+        summary["status"] = final_status
         self.scan_done.emit(summary)

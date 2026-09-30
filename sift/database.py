@@ -1,11 +1,35 @@
 import sqlite3
 import time
+from pathlib import Path
+from uuid import uuid4
 
 
 def connect(db_path):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def migrate_database(source_path, destination_path):
+    source = Path(source_path)
+    destination = Path(destination_path)
+    if not source.is_file() or destination.exists():
+        return False
+
+    temporary = destination.with_name(f"{destination.name}.{uuid4().hex}.migrating")
+    source_conn = sqlite3.connect(source)
+    destination_conn = sqlite3.connect(temporary)
+    try:
+        source_conn.backup(destination_conn)
+        destination_conn.close()
+        source_conn.close()
+        temporary.replace(destination)
+    except Exception:
+        destination_conn.close()
+        source_conn.close()
+        temporary.unlink(missing_ok=True)
+        raise
+    return True
 
 
 def init_db(conn):
@@ -97,3 +121,16 @@ def mark_interrupted(conn):
     )
     conn.commit()
     return cur.rowcount
+
+
+def get_latest_root(conn):
+    return conn.execute(
+        """
+        SELECT roots.path
+        FROM roots
+        LEFT JOIN scans ON scans.root_id = roots.id
+        GROUP BY roots.id
+        ORDER BY COALESCE(MAX(scans.started_at), roots.added_at) DESC, roots.id DESC
+        LIMIT 1
+        """
+    ).fetchone()
