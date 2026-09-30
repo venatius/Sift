@@ -20,11 +20,11 @@ Record decisions that affect product behavior or architecture. Each entry should
 
 ## D-003: Implementation technology and platform scope
 
-- **Date:** 2026-09-29
-- **Status:** Open
-- **Decision needed:** Choose the desktop shell, primary language, UI framework, analysis runtime, packaging approach, and first supported OS/version.
-- **Inputs needed:** Developer experience, target hardware, inference/decoder needs, installer/update expectations, and desired future macOS support.
-- **Next step:** Compare a small number of viable stacks against these criteria before Phase 1 implementation.
+- **Date:** 2026-09-30
+- **Status:** Accepted for Phase 1 (installer, packaging, and model choices remain open)
+- **Decision:** Python for the application, PySide6 (Qt for Python) for the desktop UI, and Python's built-in sqlite3 for local storage. Windows is the first target platform.
+- **Alternatives considered:** Other desktop shells and languages were not compared in depth. This stack was chosen because Python suits the planned local analysis and is approachable for learning.
+- **Consequences:** Packaging/installer approach and AI model choices are deferred, since the Phase 1 scanner does not need them. Revisit before Phase 2 if analysis needs outgrow this stack.
 
 ## D-004: Library database and derived-data location
 
