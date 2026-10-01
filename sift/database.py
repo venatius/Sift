@@ -7,6 +7,7 @@ from uuid import uuid4
 def connect(db_path):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -33,6 +34,9 @@ def migrate_database(source_path, destination_path):
 
 
 def init_db(conn):
+    schema_version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if schema_version > 2:
+        raise RuntimeError(f"Database schema version {schema_version} is newer than this app supports")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS roots (
             id INTEGER PRIMARY KEY,
@@ -45,6 +49,7 @@ def init_db(conn):
             path TEXT NOT NULL,
             size INTEGER,
             modified REAL,
+            modified_ns INTEGER,
             status TEXT NOT NULL,
             error TEXT,
             last_seen REAL NOT NULL,
@@ -75,9 +80,11 @@ def init_db(conn):
             orientation INTEGER,
             input_size INTEGER,
             input_modified REAL,
+            input_modified_ns INTEGER,
             extracted_at REAL NOT NULL,
             status TEXT NOT NULL,
             error TEXT,
+            retryable INTEGER NOT NULL DEFAULT 0,
             UNIQUE (file_id, extractor, extractor_version)
         );
         CREATE TABLE IF NOT EXISTS fingerprints (
@@ -85,10 +92,43 @@ def init_db(conn):
             sha256 TEXT NOT NULL,
             input_size INTEGER,
             input_modified REAL,
+            input_modified_ns INTEGER,
+            algorithm TEXT NOT NULL DEFAULT 'sha256',
+            algorithm_version TEXT NOT NULL DEFAULT '1',
+            status TEXT NOT NULL DEFAULT 'ok',
+            error TEXT,
             computed_at REAL NOT NULL
         );
     """)
-    conn.commit()
+    migrations = {
+        "files": {"modified_ns": "INTEGER"},
+        "media_metadata": {
+            "input_modified_ns": "INTEGER",
+            "retryable": "INTEGER NOT NULL DEFAULT 0",
+        },
+        "fingerprints": {
+            "input_modified_ns": "INTEGER",
+            "algorithm": "TEXT NOT NULL DEFAULT 'sha256'",
+            "algorithm_version": "TEXT NOT NULL DEFAULT '1'",
+            "status": "TEXT NOT NULL DEFAULT 'ok'",
+            "error": "TEXT",
+        },
+    }
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for table, columns in migrations.items():
+            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for column, definition in columns.items():
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        conn.execute("UPDATE files SET modified_ns = CAST(modified * 1000000000 AS INTEGER) WHERE modified_ns IS NULL AND modified IS NOT NULL")
+        conn.execute("UPDATE media_metadata SET input_modified_ns = CAST(input_modified * 1000000000 AS INTEGER) WHERE input_modified_ns IS NULL AND input_modified IS NOT NULL")
+        conn.execute("UPDATE fingerprints SET input_modified_ns = CAST(input_modified * 1000000000 AS INTEGER) WHERE input_modified_ns IS NULL AND input_modified IS NOT NULL")
+        conn.execute("PRAGMA user_version = 2")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def add_root(conn, path):
@@ -103,16 +143,18 @@ def add_root(conn, path):
 def save_file(conn, root_id, item, seen_at):
     conn.execute(
         """
-        INSERT INTO files (root_id, path, size, modified, status, error, last_seen)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO files (root_id, path, size, modified, modified_ns, status, error, last_seen)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (root_id, path) DO UPDATE SET
             size = excluded.size,
             modified = excluded.modified,
+            modified_ns = excluded.modified_ns,
             status = excluded.status,
             error = excluded.error,
             last_seen = excluded.last_seen
         """,
-        (root_id, item.path, item.size, item.modified, item.status, item.error, seen_at),
+        (root_id, item.path, item.size, item.modified, item.modified_ns,
+         item.status, item.error, seen_at),
     )
 
 
@@ -165,15 +207,16 @@ def get_latest_root(conn):
         """
     ).fetchone()
 
-def save_metadata(conn, file_id, extractor, version, r, input_size, input_modified):
+def save_metadata(conn, file_id, extractor, version, r, input_size, input_modified,
+                  input_modified_ns):
     conn.execute(
         """
         INSERT INTO media_metadata (file_id, extractor, extractor_version,
             media_kind, detected_format, width, height, duration_seconds,
             video_codec, capture_date, capture_date_source, camera_make,
-            camera_model, orientation, input_size, input_modified,
-            extracted_at, status, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            camera_model, orientation, input_size, input_modified, input_modified_ns,
+            extracted_at, status, error, retryable)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (file_id, extractor, extractor_version) DO UPDATE SET
             media_kind = excluded.media_kind,
             detected_format = excluded.detected_format,
@@ -187,14 +230,16 @@ def save_metadata(conn, file_id, extractor, version, r, input_size, input_modifi
             orientation = excluded.orientation,
             input_size = excluded.input_size,
             input_modified = excluded.input_modified,
+            input_modified_ns = excluded.input_modified_ns,
             extracted_at = excluded.extracted_at,
-            status = excluded.status, error = excluded.error
+            status = excluded.status, error = excluded.error,
+            retryable = excluded.retryable
         """,
         (file_id, extractor, version, r.media_kind, r.detected_format,
          r.width, r.height, r.duration_seconds, r.video_codec,
          r.capture_date, r.capture_date_source, r.camera_make,
-         r.camera_model, r.orientation, input_size, input_modified,
-         time.time(), r.status, r.error),
+         r.camera_model, r.orientation, input_size, input_modified, input_modified_ns,
+         time.time(), r.status, r.error, int(r.retryable)),
     )
 
 def get_file_id(conn, root_id, path):
@@ -207,7 +252,7 @@ def get_file_id(conn, root_id, path):
 def get_metadata(conn, file_id, extractor, version):
     return conn.execute(
         """
-        SELECT status, input_size, input_modified FROM media_metadata
+        SELECT status, input_size, input_modified, input_modified_ns, retryable FROM media_metadata
         WHERE file_id = ? AND extractor = ? AND extractor_version = ?
         """,
         (file_id, extractor, version),
@@ -216,21 +261,35 @@ def get_metadata(conn, file_id, extractor, version):
 
 def get_fingerprint(conn, file_id):
     return conn.execute(
-        "SELECT sha256, input_size, input_modified FROM fingerprints WHERE file_id = ?",
+        "SELECT sha256, input_size, input_modified, input_modified_ns, algorithm, "
+        "algorithm_version, status, error FROM fingerprints WHERE file_id = ?",
         (file_id,),
     ).fetchone()
 
 
-def save_fingerprint(conn, file_id, sha256, size, modified):
+def save_fingerprint(conn, file_id, sha256, size, modified, modified_ns,
+                     status="ok", error=None, algorithm="sha256", algorithm_version="1"):
     conn.execute(
         """
-        INSERT INTO fingerprints (file_id, sha256, input_size, input_modified, computed_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO fingerprints (file_id, sha256, input_size, input_modified,
+            input_modified_ns, algorithm, algorithm_version, status, error, computed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (file_id) DO UPDATE SET
             sha256 = excluded.sha256,
             input_size = excluded.input_size,
             input_modified = excluded.input_modified,
+            input_modified_ns = excluded.input_modified_ns,
+            algorithm = excluded.algorithm,
+            algorithm_version = excluded.algorithm_version,
+            status = excluded.status,
+            error = excluded.error,
             computed_at = excluded.computed_at
         """,
-        (file_id, sha256, size, modified, time.time()),
+        (file_id, sha256, size, modified, modified_ns, algorithm,
+         algorithm_version, status, error, time.time()),
     )
+
+
+def mark_file_for_retry(conn, file_id, message):
+    conn.execute("UPDATE files SET status = 'retry', error = ? WHERE id = ?",
+                 (message, file_id))

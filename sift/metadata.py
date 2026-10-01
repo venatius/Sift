@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import time
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
@@ -40,15 +41,54 @@ class MetadataResult:
     camera_model: Optional[str] = None
     orientation: Optional[int] = None
     error: Optional[str] = None
+    retryable: bool = False
 
 
 # ----- which extractor handles a file -----
 def kind_for(path):
     ext = os.path.splitext(path)[1].lower()
+    if ext == ".dng":
+        return None
+    detected = _kind_from_signature(path)
+    if detected:
+        return detected
     if ext in IMAGE_EXTS:
         return "image"
     if ext in VIDEO_EXTS:
         return "video"
+    return None
+
+
+def _kind_from_signature(path):
+    try:
+        with open(path, "rb") as media_file:
+            header = media_file.read(16)
+    except OSError:
+        return None
+    if (header.startswith(b"\xff\xd8\xff") or header.startswith(b"\x89PNG\r\n\x1a\n")
+            or header.startswith((b"GIF87a", b"GIF89a", b"BM"))
+            or header.startswith((b"II*\x00", b"MM\x00*"))):
+        return "image"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return "image"
+    if header[4:8] == b"ftyp":
+        brand = header[8:12]
+        if brand in (b"heic", b"heif", b"heix", b"hevc", b"hevx", b"mif1",
+                     b"msf1", b"avif", b"avis"):
+            return "image"
+        return "video"
+    if header.startswith(b"\x1aE\xdf\xa3"):
+        return "video"
+    if header.startswith(b"RIFF") and header[8:12] == b"AVI ":
+        return "video"
+    if len(header) >= 1 and header[0] == 0x47:
+        try:
+            with open(path, "rb") as media_file:
+                media_file.seek(188)
+                if media_file.read(1) == b"\x47":
+                    return "video"
+        except OSError:
+            pass
     return None
 
 
@@ -116,27 +156,32 @@ def _capture_date(exif):
 
 def extract_image_metadata(path):
     try:
-        with Image.open(path) as probe:
-            if probe.format != "HEIF":      # verify() isn't reliable for HEIF
-                probe.verify()
-        with Image.open(path) as img:
-            fmt = img.format
-            if fmt not in IMAGE_FORMATS:
-                return MetadataResult("unsupported", detected_format=fmt,
-                                      error=f"Actual format is {fmt}, not supported")
-            width, height = img.size
-            exif = img.getexif()
-            orientation = exif.get(0x0112)
-            capture, source = _capture_date(exif)
-            return MetadataResult(
-                "ok", "image", fmt, width, height, None, None, capture, source,
-                _text(exif.get(0x010F)), _text(exif.get(0x0110)),
-                orientation if isinstance(orientation, int) else None,
-            )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(path) as probe:
+                if probe.format == "HEIF":
+                    probe.load()
+                else:
+                    probe.verify()
+            with Image.open(path) as img:
+                fmt = img.format
+                if fmt not in IMAGE_FORMATS:
+                    return MetadataResult("unsupported", detected_format=fmt,
+                                          error=f"Actual format is {fmt}, not supported")
+                width, height = img.size
+                exif = img.getexif()
+                orientation = exif.get(0x0112)
+                capture, source = _capture_date(exif)
+                return MetadataResult(
+                    "ok", "image", fmt, width, height, None, None, capture, source,
+                    _text(exif.get(0x010F)), _text(exif.get(0x0110)),
+                    orientation if isinstance(orientation, int) else None,
+                )
     except UnidentifiedImageError:
         return MetadataResult("failed", error="Not a readable image (corrupt or wrong format)")
     except Exception as e:
-        return MetadataResult("failed", error=f"Could not read metadata: {e}")
+        return MetadataResult("failed", error=f"Could not read metadata: {e}",
+                              retryable=isinstance(e, PermissionError))
 
 
 # ----- videos -----
@@ -177,7 +222,9 @@ def extract_video_metadata(path, cancel_check):
     except MetadataCancelled:
         raise
     except Exception as e:
-        return MetadataResult("failed", error=f"ffprobe failed: {e}")
+        return MetadataResult("failed", error=f"ffprobe failed: {e}",
+                              retryable=isinstance(e, (TimeoutError, PermissionError,
+                                                       FileNotFoundError)))
     if code != 0:
         first = (err.decode("utf-8", "ignore").strip().splitlines() or ["unknown error"])[0]
         return MetadataResult("failed", error=f"Not a readable video: {first}")

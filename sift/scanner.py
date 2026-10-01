@@ -11,13 +11,26 @@ class ScanItem:
     modified: Optional[float]
     status: str  # "ok", "skipped", or "failed"
     error: Optional[str] = None
+    modified_ns: Optional[int] = None
 
 
 def _reason(e: OSError) -> str:
     return e.strerror or str(e)
 
 
+def _is_link(path: str) -> bool:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    attrs = getattr(info, "st_file_attributes", 0)
+    return stat.S_ISLNK(info.st_mode) or bool(attrs & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
 def scan_folder(root: str) -> Iterator[ScanItem]:
+    if _is_link(root):
+        yield ScanItem(root, None, None, "skipped", "Selected folder is a link; not followed")
+        return
     stack = [root]
     while stack:
         folder = stack.pop()
@@ -48,7 +61,8 @@ def scan_folder(root: str) -> Iterator[ScanItem]:
                     elif is_dir:
                         stack.append(entry.path)
                     else:
-                        yield ScanItem(entry.path, info.st_size, info.st_mtime, "ok")
+                        yield ScanItem(entry.path, info.st_size, info.st_mtime, "ok",
+                                       modified_ns=info.st_mtime_ns)
                 except OSError as e:
                     yield ScanItem(entry.path, None, None, "failed", f"Cannot read: {_reason(e)}")
 
