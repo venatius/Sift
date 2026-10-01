@@ -99,6 +99,20 @@ class PhaseTwoTests(unittest.TestCase):
             self.assertEqual(metadata.extract_video_metadata(
                 str(self.root / "bad.mp4"), lambda: False).status, "failed")
 
+        audio_only = b'{"streams":[{"codec_type":"audio"}],"format":{}}'
+        with patch.object(metadata, "ffprobe_path", return_value="ffprobe"), \
+                patch.object(metadata, "_run_ffprobe", return_value=(0, audio_only, b"")):
+            self.assertEqual(metadata.extract_video_metadata(
+                str(self.root / "audio-only.mp4"), lambda: False).status, "unsupported")
+
+    def test_raw_file_extensions_are_unsupported(self):
+        for extension in (".dng", ".nef", ".arw", ".cr3"):
+            path = self.root / f"raw{extension}"
+            path.write_bytes(b"II*\x00synthetic raw fixture")
+            self.assertIsNone(metadata.kind_for(str(path)))
+            self.assertEqual(metadata.extract(str(path), None, lambda: False).status,
+                             "unsupported")
+
     def test_database_migration_preserves_phase1_records_and_enforces_fks(self):
         old_path = Path(self.temp.name) / "phase1.db"
         old = sqlite3.connect(old_path)

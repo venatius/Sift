@@ -53,10 +53,12 @@ Record decisions that affect product behavior or architecture. Each entry should
   | MP4, MOV, M4V, 3GP, MKV, AVI, WebM, MTS | External ffprobe; development environment: 9.0.2-full_build-www.gyan.dev |
   | Everything else                         | none (recorded as unsupported)            |
 
-- **Tested formats:** (fill in after the manual check)
+- **Tested formats:** JPEG, HEIC/HEIF, TIFF, MP4, MOV, AVI, and WebM were exercised on real sample files.
 - **Development setup:** ffprobe is an external FFmpeg executable, not a Python dependency. On Windows, the observed environment installed package `Gyan.FFmpeg` 9.0.2 through WinGet (`winget install --id Gyan.FFmpeg --exact`). Gyan.dev full builds are GPLv3; Sift does not bundle or download them. See [Gyan.dev build details](https://www.gyan.dev/ffmpeg/builds/) and [FFmpeg licensing](https://ffmpeg.org/legal.html).
 - **Image validation:** Pillow's decompression-bomb warning is ignored while reading metadata; hard decompression-bomb errors and decoder errors remain per-file failures.
 - **Synthetic test coverage:** generated files exercise the listed extraction paths, but do not qualify formats for the real-sample **Tested formats** list above.
+- **Unsupported media:** RAW image extensions (including DNG, NEF, ARW, and CR3) and containers without a video stream are reported as unsupported metadata, not corrupt media.
+- **Real-file test result:** 138 files were scanned and fingerprinted; 128 metadata extractions succeeded, 9 were unsupported, and one malformed MP4 failed metadata extraction. On a second scan, metadata was reused for all 138 files and forced fingerprint verification recomputed all 138. Embedded capture/device fields were present only on some samples.
 
 ## D-006: AI model distribution and license policy
 

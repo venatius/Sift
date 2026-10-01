@@ -18,6 +18,8 @@ pillow_heif.register_heif_opener()  # lets Pillow open HEIC/HEIF files
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
               ".tif", ".tiff", ".heic", ".heif"}
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".3gp", ".mkv", ".avi", ".webm", ".mts"}
+RAW_EXTS = {".dng", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".crw", ".cr2",
+            ".cr3", ".raf", ".orf", ".rw2", ".pef", ".ptx", ".srw", ".x3f"}
 IMAGE_FORMATS = {"JPEG", "PNG", "GIF", "WEBP", "BMP", "TIFF", "HEIF"}
 FFPROBE_TIMEOUT = 30  # seconds
 
@@ -47,7 +49,7 @@ class MetadataResult:
 # ----- which extractor handles a file -----
 def kind_for(path):
     ext = os.path.splitext(path)[1].lower()
-    if ext == ".dng":
+    if ext in RAW_EXTS:
         return None
     detected = _kind_from_signature(path)
     if detected:
@@ -237,7 +239,7 @@ def extract_video_metadata(path, cancel_check):
                   if s.get("codec_type") == "video"
                   and not s.get("disposition", {}).get("attached_pic")), None)
     if video is None:
-        return MetadataResult("failed", error="No video stream found")
+        return MetadataResult("unsupported", error="No video stream found")
 
     fmt = data.get("format", {})
     tags = {k.lower(): v for k, v in (fmt.get("tags") or {}).items()}
