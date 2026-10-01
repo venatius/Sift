@@ -5,7 +5,7 @@ import subprocess
 import time
 import warnings
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Optional
 
@@ -13,13 +13,19 @@ import PIL
 import pillow_heif
 from PIL import Image, UnidentifiedImageError
 
+try:
+    import rawpy
+except ImportError:
+    rawpy = None
+
 pillow_heif.register_heif_opener()  # lets Pillow open HEIC/HEIF files
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
               ".tif", ".tiff", ".heic", ".heif"}
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".3gp", ".mkv", ".avi", ".webm", ".mts"}
-RAW_EXTS = {".dng", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".crw", ".cr2",
-            ".cr3", ".raf", ".orf", ".rw2", ".pef", ".ptx", ".srw", ".x3f"}
+RAW_EXTS = {".dng", ".nef", ".arw"}
+AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus",
+              ".wma", ".aiff", ".aif", ".mka"}
 IMAGE_FORMATS = {"JPEG", "PNG", "GIF", "WEBP", "BMP", "TIFF", "HEIF"}
 FFPROBE_TIMEOUT = 30  # seconds
 
@@ -44,13 +50,18 @@ class MetadataResult:
     orientation: Optional[int] = None
     error: Optional[str] = None
     retryable: bool = False
+    audio_codec: Optional[str] = None
+    audio_sample_rate: Optional[int] = None
+    audio_channels: Optional[int] = None
+    audio_channel_layout: Optional[str] = None
+    audio_bit_rate: Optional[int] = None
 
 
 # ----- which extractor handles a file -----
 def kind_for(path):
     ext = os.path.splitext(path)[1].lower()
     if ext in RAW_EXTS:
-        return None
+        return "raw"
     detected = _kind_from_signature(path)
     if detected:
         return detected
@@ -58,6 +69,8 @@ def kind_for(path):
         return "image"
     if ext in VIDEO_EXTS:
         return "video"
+    if ext in AUDIO_EXTS:
+        return "audio"
     return None
 
 
@@ -117,6 +130,10 @@ def extractor_info(kind):
         return "pillow", f"{PIL.__version__}+heif{pillow_heif.__version__}"
     if kind == "video":
         return "ffprobe", _ffprobe_version()
+    if kind == "audio":
+        return "ffprobe", _ffprobe_version()
+    if kind == "raw":
+        return "rawpy", f"{getattr(rawpy, '__version__', 'missing')}+sift2"
     return "none", "1"
 
 
@@ -125,11 +142,40 @@ def extract(path, kind, cancel_check):
         return extract_image_metadata(path)
     if kind == "video":
         return extract_video_metadata(path, cancel_check)
+    if kind == "audio":
+        return extract_video_metadata(path, cancel_check)
+    if kind == "raw":
+        return extract_raw_metadata(path)
     ext = os.path.splitext(path)[1].lower() or "no extension"
     return MetadataResult("unsupported", error=f"No extractor for '{ext}' files")
 
 
 # ----- images -----
+def extract_raw_metadata(path):
+    if rawpy is None:
+        return MetadataResult("failed", media_kind="image",
+                              error="rawpy is not installed; install project requirements")
+    try:
+        with rawpy.imread(path) as raw:
+            sizes = raw.sizes
+            try:
+                timestamp = getattr(raw.other, "timestamp", None)
+            except Exception:
+                timestamp = None
+            capture = None
+            if timestamp:
+                capture = datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+            return MetadataResult(
+                "ok", "image", os.path.splitext(path)[1][1:].upper(),
+                sizes.width, sizes.height, capture_date=capture,
+                capture_date_source="rawpy:timestamp" if capture else None,
+            )
+    except Exception as error:
+        return MetadataResult("failed", media_kind="image",
+                              error=f"Could not decode RAW image: {error}",
+                              retryable=isinstance(error, PermissionError))
+
+
 def _text(value):
     if value is None:
         return None
@@ -229,17 +275,19 @@ def extract_video_metadata(path, cancel_check):
                                                        FileNotFoundError)))
     if code != 0:
         first = (err.decode("utf-8", "ignore").strip().splitlines() or ["unknown error"])[0]
-        return MetadataResult("failed", error=f"Not a readable video: {first}")
+        return MetadataResult("failed", error=f"Not readable media: {first}")
     try:
         data = json.loads(out)
     except ValueError:
         return MetadataResult("failed", error="ffprobe returned unreadable output")
 
-    video = next((s for s in data.get("streams", [])
+    streams = data.get("streams", [])
+    video = next((s for s in streams
                   if s.get("codec_type") == "video"
                   and not s.get("disposition", {}).get("attached_pic")), None)
-    if video is None:
-        return MetadataResult("unsupported", error="No video stream found")
+    audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    if video is None and audio is None:
+        return MetadataResult("unsupported", error="No audio or video stream found")
 
     fmt = data.get("format", {})
     tags = {k.lower(): v for k, v in (fmt.get("tags") or {}).items()}
@@ -253,10 +301,21 @@ def extract_video_metadata(path, cancel_check):
         capture, source = None, None
 
     return MetadataResult(
-        "ok", "video", fmt.get("format_name"),
-        video.get("width"), video.get("height"),
-        _float(fmt.get("duration")) or _float(video.get("duration")),
-        video.get("codec_name"), capture, source,
-        _text(tags.get("com.apple.quicktime.make")),
-        _text(tags.get("com.apple.quicktime.model")), None,
+        status="ok", media_kind="video" if video else "audio",
+        detected_format=fmt.get("format_name"),
+        width=video.get("width") if video else None,
+        height=video.get("height") if video else None,
+        duration_seconds=_float(fmt.get("duration")) or
+                         _float((video or audio).get("duration")),
+        video_codec=video.get("codec_name") if video else None,
+        capture_date=capture, capture_date_source=source,
+        camera_make=_text(tags.get("com.apple.quicktime.make")),
+        camera_model=_text(tags.get("com.apple.quicktime.model")),
+        audio_codec=audio.get("codec_name") if audio else None,
+        audio_sample_rate=int(audio["sample_rate"]) if audio and
+                          str(audio.get("sample_rate", "")).isdigit() else None,
+        audio_channels=audio.get("channels") if audio else None,
+        audio_channel_layout=_text(audio.get("channel_layout")) if audio else None,
+        audio_bit_rate=int(audio["bit_rate"]) if audio and
+                      str(audio.get("bit_rate", "")).isdigit() else None,
     )

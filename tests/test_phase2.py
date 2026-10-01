@@ -102,16 +102,62 @@ class PhaseTwoTests(unittest.TestCase):
         audio_only = b'{"streams":[{"codec_type":"audio"}],"format":{}}'
         with patch.object(metadata, "ffprobe_path", return_value="ffprobe"), \
                 patch.object(metadata, "_run_ffprobe", return_value=(0, audio_only, b"")):
-            self.assertEqual(metadata.extract_video_metadata(
-                str(self.root / "audio-only.mp4"), lambda: False).status, "unsupported")
+            result = metadata.extract_video_metadata(
+                str(self.root / "audio-only.mp4"), lambda: False)
+            self.assertEqual((result.status, result.media_kind), ("ok", "audio"))
 
-    def test_raw_file_extensions_are_unsupported(self):
-        for extension in (".dng", ".nef", ".arw", ".cr3"):
+        stream_data = (b'{"streams":[{"codec_type":"audio","codec_name":"aac",'
+                       b'"sample_rate":"48000","channels":2,"channel_layout":"stereo",'
+                       b'"bit_rate":"128000"}],"format":{"format_name":"mov,mp4",'
+                       b'"duration":"2.5"}}')
+        with patch.object(metadata, "ffprobe_path", return_value="ffprobe"), \
+                patch.object(metadata, "_run_ffprobe", return_value=(0, stream_data, b"")):
+            result = metadata.extract_video_metadata(
+                str(self.root / "audio-only.mp4"), lambda: False)
+        self.assertEqual((result.audio_codec, result.audio_sample_rate,
+                          result.audio_channels, result.audio_channel_layout,
+                          result.audio_bit_rate, result.duration_seconds),
+                         ("aac", 48000, 2, "stereo", 128000, 2.5))
+
+    def test_raw_decode_extracts_metadata_without_rendering(self):
+        self.assertEqual(metadata.extractor_info("raw"), ("rawpy", "0.27.1+sift2"))
+
+        class RawOther:
+            @property
+            def timestamp(self):
+                raise RuntimeError("optional metadata unavailable")
+
+        class RawImage:
+            sizes = type("Sizes", (), {"width": 4000, "height": 3000})()
+            other = RawOther()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        fake_rawpy = type("RawPy", (), {
+            "__version__": "test",
+            "imread": staticmethod(lambda path: RawImage()),
+            "postprocess": staticmethod(lambda *args: self.fail("must not render")),
+        })
+        for extension in (".dng", ".nef", ".arw"):
             path = self.root / f"raw{extension}"
             path.write_bytes(b"II*\x00synthetic raw fixture")
-            self.assertIsNone(metadata.kind_for(str(path)))
-            self.assertEqual(metadata.extract(str(path), None, lambda: False).status,
-                             "unsupported")
+            self.assertEqual(metadata.kind_for(str(path)), "raw")
+            with patch.object(metadata, "rawpy", fake_rawpy):
+                result = metadata.extract(str(path), "raw", lambda: False)
+            self.assertEqual((result.status, result.media_kind, result.width, result.height),
+                             ("ok", "image", 4000, 3000))
+
+    def test_database_schema_v3_has_audio_fields(self):
+        conn = database.connect(self.db_path)
+        self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 3)
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(media_metadata)")}
+        self.assertTrue({"audio_codec", "audio_sample_rate", "audio_channels",
+                         "audio_channel_layout", "audio_bit_rate"}.issubset(columns))
+        conn.close()
 
     def test_database_migration_preserves_phase1_records_and_enforces_fks(self):
         old_path = Path(self.temp.name) / "phase1.db"

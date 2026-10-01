@@ -16,6 +16,13 @@ and [FFmpeg license information](https://ffmpeg.org/legal.html). Sift does not
 download or bundle FFmpeg. The current development environment uses
 `ffprobe 9.0.2-full_build-www.gyan.dev`.
 
+RAW metadata for DNG, NEF, and ARW files uses the pinned `rawpy` package and its
+LibRaw decoder. Sift reads dimensions and an available capture timestamp only;
+it does not render/demosaic RAW pixels. This explicit extension scope does not
+promise support for every camera RAW variant. Audio-only metadata uses ffprobe
+for audio streams in supported containers and common audio files. Results may
+include codec, duration, sample rate, channels/layout, and bit rate when present.
+
 The app stores its SQLite library under `%LOCALAPPDATA%\Sift\sift.db`. Scanning
 and media analysis are local and read-only. Set `LOCALAPPDATA` to a temporary
 directory when running isolated tests.

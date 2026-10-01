@@ -35,7 +35,7 @@ def migrate_database(source_path, destination_path):
 
 def init_db(conn):
     schema_version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if schema_version > 2:
+    if schema_version > 3:
         raise RuntimeError(f"Database schema version {schema_version} is newer than this app supports")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS roots (
@@ -73,6 +73,11 @@ def init_db(conn):
             height INTEGER,
             duration_seconds REAL,
             video_codec TEXT,
+            audio_codec TEXT,
+            audio_sample_rate INTEGER,
+            audio_channels INTEGER,
+            audio_channel_layout TEXT,
+            audio_bit_rate INTEGER,
             capture_date TEXT,
             capture_date_source TEXT,
             camera_make TEXT,
@@ -105,6 +110,11 @@ def init_db(conn):
         "media_metadata": {
             "input_modified_ns": "INTEGER",
             "retryable": "INTEGER NOT NULL DEFAULT 0",
+            "audio_codec": "TEXT",
+            "audio_sample_rate": "INTEGER",
+            "audio_channels": "INTEGER",
+            "audio_channel_layout": "TEXT",
+            "audio_bit_rate": "INTEGER",
         },
         "fingerprints": {
             "input_modified_ns": "INTEGER",
@@ -124,7 +134,7 @@ def init_db(conn):
         conn.execute("UPDATE files SET modified_ns = CAST(modified * 1000000000 AS INTEGER) WHERE modified_ns IS NULL AND modified IS NOT NULL")
         conn.execute("UPDATE media_metadata SET input_modified_ns = CAST(input_modified * 1000000000 AS INTEGER) WHERE input_modified_ns IS NULL AND input_modified IS NOT NULL")
         conn.execute("UPDATE fingerprints SET input_modified_ns = CAST(input_modified * 1000000000 AS INTEGER) WHERE input_modified_ns IS NULL AND input_modified IS NOT NULL")
-        conn.execute("PRAGMA user_version = 2")
+        conn.execute("PRAGMA user_version = 3")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -213,16 +223,22 @@ def save_metadata(conn, file_id, extractor, version, r, input_size, input_modifi
         """
         INSERT INTO media_metadata (file_id, extractor, extractor_version,
             media_kind, detected_format, width, height, duration_seconds,
-            video_codec, capture_date, capture_date_source, camera_make,
+            video_codec, audio_codec, audio_sample_rate, audio_channels,
+            audio_channel_layout, audio_bit_rate, capture_date, capture_date_source, camera_make,
             camera_model, orientation, input_size, input_modified, input_modified_ns,
             extracted_at, status, error, retryable)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (file_id, extractor, extractor_version) DO UPDATE SET
             media_kind = excluded.media_kind,
             detected_format = excluded.detected_format,
             width = excluded.width, height = excluded.height,
             duration_seconds = excluded.duration_seconds,
             video_codec = excluded.video_codec,
+            audio_codec = excluded.audio_codec,
+            audio_sample_rate = excluded.audio_sample_rate,
+            audio_channels = excluded.audio_channels,
+            audio_channel_layout = excluded.audio_channel_layout,
+            audio_bit_rate = excluded.audio_bit_rate,
             capture_date = excluded.capture_date,
             capture_date_source = excluded.capture_date_source,
             camera_make = excluded.camera_make,
@@ -237,6 +253,8 @@ def save_metadata(conn, file_id, extractor, version, r, input_size, input_modifi
         """,
         (file_id, extractor, version, r.media_kind, r.detected_format,
          r.width, r.height, r.duration_seconds, r.video_codec,
+         r.audio_codec, r.audio_sample_rate, r.audio_channels,
+         r.audio_channel_layout, r.audio_bit_rate,
          r.capture_date, r.capture_date_source, r.camera_make,
          r.camera_model, r.orientation, input_size, input_modified, input_modified_ns,
          time.time(), r.status, r.error, int(r.retryable)),
