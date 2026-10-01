@@ -50,10 +50,13 @@ Record decisions that affect product behavior or architecture. Each entry should
   | --------------------------------------- | ----------------------------------------- |
   | JPEG, PNG, GIF, WebP, BMP, TIFF         | Pillow 12.3.0                             |
   | HEIC/HEIF                               | Pillow with pillow-heif 1.8.0             |
-  | MP4, MOV, M4V, 3GP, MKV, AVI, WebM, MTS | ffprobe (FFmpeg, version and source: ...) |
+  | MP4, MOV, M4V, 3GP, MKV, AVI, WebM, MTS | External ffprobe; development environment: 9.0.2-full_build-www.gyan.dev |
   | Everything else                         | none (recorded as unsupported)            |
 
 - **Tested formats:** (fill in after the manual check)
+- **Development setup:** ffprobe is an external FFmpeg executable, not a Python dependency. On Windows, the observed environment installed package `Gyan.FFmpeg` 9.0.2 through WinGet (`winget install --id Gyan.FFmpeg --exact`). Gyan.dev full builds are GPLv3; Sift does not bundle or download them. See [Gyan.dev build details](https://www.gyan.dev/ffmpeg/builds/) and [FFmpeg licensing](https://ffmpeg.org/legal.html).
+- **Image validation:** Pillow's decompression-bomb warning is ignored while reading metadata; hard decompression-bomb errors and decoder errors remain per-file failures.
+- **Synthetic test coverage:** generated files exercise the listed extraction paths, but do not qualify formats for the real-sample **Tested formats** list above.
 
 ## D-006: AI model distribution and license policy
 

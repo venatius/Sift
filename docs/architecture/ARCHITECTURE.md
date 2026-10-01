@@ -179,3 +179,11 @@ These are deliberately cautious first-version rules. They can be expanded in lat
 - **Hidden files:** recorded, not skipped. Hidden means the Windows hidden attribute or a name starting with ".".
 - **Errors:** if a file or folder cannot be read, the scanner records the problem and continues with the rest.
 - **Not in Phase 1:** include/exclude rules, multiple roots, file identity tracking, content hashing, and change detection.
+
+## Phase 2 metadata and fingerprints
+
+- Metadata extraction and SHA-256 hashing run as independent per-file stages. Hashes are read in bounded chunks; pause and cancellation are checked between chunks.
+- Cache identity includes file ID, algorithm/extractor version, size, and nanosecond modification time. A cache can miss content changes that preserve both size and timestamp; the scan window's **Verify all file contents (slower)** option bypasses fingerprint reuse.
+- Each stage checks the file signature before and after reading. If the file changes or disappears, the result is not accepted and the file is marked for a retry on a later scan.
+- Restarting the app does not continue at the exact interrupted file. Persisted results are retained, and the next scan starts at the selected root and reuses eligible cached stages.
+- FFmpeg is an external dependency for video metadata. Sift neither downloads nor bundles its executables; developers must install ffprobe and make it available on `PATH`.

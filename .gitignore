@@ -219,3 +219,4 @@ __marimo__/
 
 *.db
 test_data/
+tests_tmp/
