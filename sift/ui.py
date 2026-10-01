@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QMainWindow,
+    QCheckBox, QFileDialog, QHBoxLayout, QLabel, QMainWindow,
     QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
@@ -40,13 +40,14 @@ class MainWindow(QMainWindow):
         self.saved_label = QLabel("")
         self.report = QPlainTextEdit()
         self.report.setReadOnly(True)
+        self.force_rehash_check = QCheckBox("Verify all file contents (slower)")
 
         buttons = QHBoxLayout()
         for b in (self.choose_btn, self.start_btn, self.pause_btn, self.cancel_btn):
             buttons.addWidget(b)
 
         layout = QVBoxLayout()
-        for w in (self.folder_label, buttons, self.status_label,
+        for w in (self.folder_label, buttons, self.force_rehash_check, self.status_label,
                   self.count_label, self.saved_label, self.report):
             if isinstance(w, QHBoxLayout):
                 layout.addLayout(w)
@@ -113,10 +114,12 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Scanning...")
 
         self.thread = QThread()
-        self.worker = ScanWorker(self.folder, DB_PATH)
+        self.worker = ScanWorker(self.folder, DB_PATH,
+                                 force_rehash=self.force_rehash_check.isChecked())
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self.on_progress)
+        self.worker.stage_progress.connect(self.on_stage_progress)
         self.worker.scan_done.connect(self.on_scan_done)
 
         self.set_scanning(True)
@@ -132,7 +135,7 @@ class MainWindow(QMainWindow):
             self.worker.pause()
             self.paused = True
             self.pause_btn.setText("Resume")
-            self.status_label.setText("Paused (stops between files)")
+            self.status_label.setText("Paused (between files and hash chunks)")
 
     def cancel_scan(self):
         self.status_label.setText("Cancelling...")
@@ -143,6 +146,12 @@ class MainWindow(QMainWindow):
         self.count_label.setText(f"Files found: {total}")
         if path and not self.paused:
             self.status_label.setText(f"Scanning... {path[-70:]}")
+
+    def on_stage_progress(self, stage, current, total):
+        if not self.paused:
+            self.status_label.setText(
+                f"{stage.capitalize()} current file: {current:,} / {total:,} bytes"
+            )
 
     def on_scan_done(self, s):
         self.thread.quit()
@@ -155,7 +164,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Scan failed")
         elif s["cancelled"]:
             self.status_label.setText("Scan cancelled")
-        elif s["failed"]:
+        elif (s["failed"] or s["meta_failed"] or s["fp_failed"] or s["errors"]):
             self.status_label.setText("Scan finished with errors")
         else:
             self.status_label.setText("Scan finished")
@@ -163,6 +172,10 @@ class MainWindow(QMainWindow):
             f"Scanned: {s['scanned']}",
             f"Skipped: {s['skipped']}",
             f"Failed: {s['failed']}",
+            f"Metadata: {s['meta_ok']} extracted, {s['meta_unsupported']} unsupported, "
+            f"{s['meta_failed']} failed, {s['meta_reused']} reused",
+            f"Fingerprints: {s['fp_done']} computed, {s['fp_reused']} reused, "
+            f"{s['fp_failed']} failed",
         ]
         if s["cancelled"]:
             lines.append("The scan was cancelled before it finished.")
