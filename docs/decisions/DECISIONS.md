@@ -36,10 +36,24 @@ Record decisions that affect product behavior or architecture. Each entry should
 
 ## D-005: Supported formats and representative collections
 
-- **Date:** 2026-09-29
-- **Status:** Open
-- **Decision needed:** Name first-release photo/video/document formats and establish privacy-safe benchmark collections and minimum hardware.
-- **Inputs needed:** User's actual library mix, camera/phone formats, raw formats, common video codecs, and platform targets.
+- **Date:** 2026-10-01
+- **Status:** Accepted for Phase 2 (benchmark collections and minimum hardware remain open)
+- **Decision:** Phase 2 extracts metadata from common phone photos and videos. All regular files get a SHA-256 fingerprint regardless of format. Formats outside the table below (RAW/DNG, documents, etc.) are recorded as "unsupported" for metadata but still fingerprinted. A format is only listed as supported after it was tested on real sample files.
+- **Metadata kept:**
+  - Images: detected format, width, height, capture date and its source field (no timezone assumed), camera make/model, orientation.
+  - Videos: detected container, width, height, duration, video codec, creation time and its source tag, device make/model when present.
+  - Filesystem size and modified time stay separate from embedded dates.
+- **Location data:** GPS is not read or stored in Phase 2 (including video location tags). Handling will be decided before it is added.
+- **Extractors:**
+
+  | Format                                  | Extractor                                 |
+  | --------------------------------------- | ----------------------------------------- |
+  | JPEG, PNG, GIF, WebP, BMP, TIFF         | Pillow 12.3.0                             |
+  | HEIC/HEIF                               | Pillow with pillow-heif 1.8.0             |
+  | MP4, MOV, M4V, 3GP, MKV, AVI, WebM, MTS | ffprobe (FFmpeg, version and source: ...) |
+  | Everything else                         | none (recorded as unsupported)            |
+
+- **Tested formats:** (fill in after the manual check)
 
 ## D-006: AI model distribution and license policy
 
