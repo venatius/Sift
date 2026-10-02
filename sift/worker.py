@@ -242,7 +242,7 @@ class ScanWorker(QObject):
 
             conn.commit()
             self.progress.emit(total, "")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Unexpected scan errors must mark the scan failed.
             final_status = "failed"
             summary["errors"].append(("(scan stopped unexpectedly)", str(e)))
         finally:
@@ -250,7 +250,7 @@ class ScanWorker(QObject):
                 try:
                     if scan_id is not None:
                         database.finish_scan(conn, scan_id, final_status)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - Report status-save failures during cleanup.
                     final_status = "failed"
                     summary["errors"].append(("(could not save scan status)", str(e)))
                 finally:

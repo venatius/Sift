@@ -79,9 +79,8 @@ def _kind_from_signature(path):
             header = media_file.read(16)
     except OSError:
         return None
-    if (header.startswith(b"\xff\xd8\xff") or header.startswith(b"\x89PNG\r\n\x1a\n")
-            or header.startswith((b"GIF87a", b"GIF89a", b"BM"))
-            or header.startswith((b"II*\x00", b"MM\x00*"))):
+    if header.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a",
+                          b"BM", b"II*\x00", b"MM\x00*")):
         return "image"
     if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
         return "image"
@@ -116,10 +115,10 @@ def _ffprobe_version():
     if not exe:
         return "missing"
     try:
-        out = subprocess.run([exe, "-version"], capture_output=True, text=True,
+        out = subprocess.run([exe, "-version"], capture_output=True, text=True, check=False,
                              timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
         return out.stdout.split("\n")[0].split()[2]  # "ffprobe version X ..."
-    except Exception:
+    except (OSError, subprocess.SubprocessError, IndexError):
         return "unknown"
 
 
@@ -159,7 +158,7 @@ def extract_raw_metadata(path):
             sizes = raw.sizes
             try:
                 timestamp = getattr(raw.other, "timestamp", None)
-            except Exception:
+            except Exception:  # noqa: BLE001 - One file failing must never abort the scan.
                 timestamp = None
             capture = None
             if timestamp:
@@ -169,7 +168,7 @@ def extract_raw_metadata(path):
                 sizes.width, sizes.height, capture_date=capture,
                 capture_date_source="rawpy:timestamp" if capture else None,
             )
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - One file failing must never abort the scan.
         return MetadataResult("failed", media_kind="image",
                               error=f"Could not decode RAW image: {error}",
                               retryable=isinstance(error, PermissionError))
@@ -187,14 +186,14 @@ def _text(value):
 def _capture_date(exif):
     try:
         exif_ifd = exif.get_ifd(0x8769)  # the "Exif" sub-block
-    except Exception:
+    except Exception:  # noqa: BLE001 - One file failing must never abort the scan.
         exif_ifd = {}
     for tag, source in ((0x9003, "exif:DateTimeOriginal"),
                         (0x9004, "exif:DateTimeDigitized")):
         raw = _text(exif_ifd.get(tag))
         if raw:
             try:
-                parsed = datetime.strptime(raw, "%Y:%m:%d %H:%M:%S")
+                parsed = datetime.strptime(raw, "%Y:%m:%d %H:%M:%S")  # noqa: DTZ007 - EXIF has no timezone.
                 return parsed.isoformat(), source  # no timezone assumed
             except ValueError:
                 continue
@@ -226,7 +225,7 @@ def extract_image_metadata(path):
                 )
     except UnidentifiedImageError:
         return MetadataResult("failed", error="Not a readable image (corrupt or wrong format)")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - One file failing must never abort the scan.
         return MetadataResult("failed", error=f"Could not read metadata: {e}",
                               retryable=isinstance(e, PermissionError))
 
@@ -268,7 +267,7 @@ def extract_video_metadata(path, cancel_check):
         code, out, err = _run_ffprobe(exe, path, cancel_check)
     except MetadataCancelled:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - One file failing must never abort the scan.
         return MetadataResult("failed", error=f"ffprobe failed: {e}",
                               retryable=isinstance(e, (TimeoutError, PermissionError,
                                                        FileNotFoundError)))

@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
@@ -319,7 +320,6 @@ class PhaseTwoTests(unittest.TestCase):
             started.set()
             while not should_stop():
                 time.sleep(0.005)
-            return None
 
         with patch.object(ui, "DB_PATH", self.db_path), \
                 patch.object(ui, "LEGACY_DB_PATH", str(Path(self.temp.name) / "no-legacy.db")), \

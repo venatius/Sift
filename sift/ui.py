@@ -179,10 +179,14 @@ class MainWindow(QMainWindow):
             f"Scanned: {s['scanned']}",
             f"Skipped: {s['skipped']}",
             f"Failed: {s['failed']}",
-            f"Metadata: {s['meta_ok']} extracted, {s['meta_unsupported']} unsupported, "
-            f"{s['meta_failed']} failed, {s['meta_reused']} reused",
-            f"Fingerprints: {s['fp_done']} computed, {s['fp_reused']} reused, "
-            f"{s['fp_failed']} failed",
+            (
+                f"Metadata: {s['meta_ok']} extracted, {s['meta_unsupported']} unsupported, "
+                f"{s['meta_failed']} failed, {s['meta_reused']} reused"
+            ),
+            (
+                f"Fingerprints: {s['fp_done']} computed, {s['fp_reused']} reused, "
+                f"{s['fp_failed']} failed"
+            ),
         ]
         if s["cancelled"]:
             lines.append("The scan was cancelled before it finished.")
