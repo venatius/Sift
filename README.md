@@ -3,7 +3,7 @@ Privacy-first local AI media organization
 
 ## Development setup
 
-The current development environment is verified on Python 3.13.3 for Windows.
+Requires Python 3.11 or newer; tested on 3.13.3 only.
 Create and activate a virtual environment,
 then install the pinned Python dependencies with `python -m pip install -r requirements.txt`.
 Run the synthetic fixture suite with `python -m unittest discover -s tests -v`.
