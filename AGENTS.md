@@ -2,7 +2,7 @@
 
 ## Scope and repo map
 
-Work in `C:\Users\elans\Downloads\SIFT`, not the OneDrive copy.
+Work in this repository root. Ignore any other copies of SIFT.
 
 | Path | Responsibility |
 | --- | --- |
@@ -54,7 +54,7 @@ or delete tags.
 
 ## Conventions
 
-- Target the documented Windows development environment, Python 3.13.
+- Requires Python 3.11 or newer; tested on 3.13.3 only.
 - Keep tests in the existing unittest structure and use synthetic fixtures.
 - Prefer small, scoped edits; preserve existing file formatting.
 - Commit message style when requested: `type(scope): imperative summary`, for
