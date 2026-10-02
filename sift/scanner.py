@@ -1,17 +1,17 @@
 import os
 import stat
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator, Optional
 
 
 @dataclass
 class ScanItem:
     path: str
-    size: Optional[int]
-    modified: Optional[float]
+    size: int | None
+    modified: float | None
     status: str  # "ok", "skipped", or "failed"
-    error: Optional[str] = None
-    modified_ns: Optional[int] = None
+    error: str | None = None
+    modified_ns: int | None = None
 
 
 def _reason(e: OSError) -> str:

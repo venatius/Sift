@@ -5,9 +5,8 @@ import subprocess
 import time
 import warnings
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
-from typing import Optional
 
 import PIL
 import pillow_heif
@@ -37,24 +36,24 @@ class MetadataCancelled(Exception):
 @dataclass
 class MetadataResult:
     status: str  # "ok", "unsupported", or "failed"
-    media_kind: Optional[str] = None
-    detected_format: Optional[str] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
-    duration_seconds: Optional[float] = None
-    video_codec: Optional[str] = None
-    capture_date: Optional[str] = None
-    capture_date_source: Optional[str] = None
-    camera_make: Optional[str] = None
-    camera_model: Optional[str] = None
-    orientation: Optional[int] = None
-    error: Optional[str] = None
+    media_kind: str | None = None
+    detected_format: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration_seconds: float | None = None
+    video_codec: str | None = None
+    capture_date: str | None = None
+    capture_date_source: str | None = None
+    camera_make: str | None = None
+    camera_model: str | None = None
+    orientation: int | None = None
+    error: str | None = None
     retryable: bool = False
-    audio_codec: Optional[str] = None
-    audio_sample_rate: Optional[int] = None
-    audio_channels: Optional[int] = None
-    audio_channel_layout: Optional[str] = None
-    audio_bit_rate: Optional[int] = None
+    audio_codec: str | None = None
+    audio_sample_rate: int | None = None
+    audio_channels: int | None = None
+    audio_channel_layout: str | None = None
+    audio_bit_rate: int | None = None
 
 
 # ----- which extractor handles a file -----
@@ -164,7 +163,7 @@ def extract_raw_metadata(path):
                 timestamp = None
             capture = None
             if timestamp:
-                capture = datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+                capture = datetime.fromtimestamp(timestamp, UTC).isoformat()
             return MetadataResult(
                 "ok", "image", os.path.splitext(path)[1][1:].upper(),
                 sizes.width, sizes.height, capture_date=capture,
