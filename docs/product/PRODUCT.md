@@ -1,7 +1,7 @@
 # Sift Product Definition
 
 **Status:** Phase 0 baseline  
-**Last updated:** 2026-09-29
+**Last updated:** 2026-10-02
 
 ## Product
 
@@ -116,8 +116,9 @@ Phase 0 does not set numerical targets until representative collections and hard
 ## Phase 0 completion checklist
 
 - Product promise, principles, initial audience, and release scope are reviewed.
-- Supported operating systems, media formats, and representative test collections are decided.
+- [x] Supported media formats are decided.
+- [ ] Representative test collections, minimum hardware, and minimum OS versions are decided.
 - Privacy boundary and local-data retention behavior are approved.
-- The architecture document defines modules, data ownership, processing flow, and safety boundaries.
+- [x] The architecture document defines modules, data ownership, processing flow, and safety boundaries.
 - Open technical choices have recorded decisions or explicit owners and due points.
 - Phase 1 has acceptance criteria and is the only implementation phase authorized to begin next.

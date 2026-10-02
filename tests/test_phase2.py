@@ -80,6 +80,21 @@ class PhaseTwoTests(unittest.TestCase):
         self.assertEqual(metadata.extract(str(corrupt), None, lambda: False).status,
                          "unsupported")
 
+    def test_corrupt_raw_and_unsupported_extension_statuses(self):
+        corrupt_raw = self.root / "broken.dng"
+        corrupt_raw.write_bytes(b"not a RAW image")
+        raw_kind = metadata.kind_for(str(corrupt_raw))
+        self.assertEqual(raw_kind, "raw")
+        self.assertEqual(metadata.extract(str(corrupt_raw), raw_kind,
+                                          lambda: False).status, "failed")
+
+        unsupported = self.root / "unknown.xyz"
+        unsupported.write_bytes(b"not a supported media file")
+        unsupported_kind = metadata.kind_for(str(unsupported))
+        self.assertIsNone(unsupported_kind)
+        self.assertEqual(metadata.extract(str(unsupported), unsupported_kind,
+                                          lambda: False).status, "unsupported")
+
     def test_content_signature_overrides_unfamiliar_extension(self):
         image_path = self.root / "photo.payload"
         Image.new("RGB", (8, 6), "blue").save(image_path, format="PNG")

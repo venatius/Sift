@@ -37,6 +37,7 @@ Record decisions that affect product behavior or architecture. Each entry should
 ## D-005: Supported formats and representative collections
 
 - **Date:** 2026-10-01
+- **Validation updated:** 2026-10-02
 - **Status:** Accepted for Phase 2 (benchmark collections and minimum hardware remain open)
 - **Decision:** Phase 2 extracts metadata from the explicitly listed formats below. All regular files get a SHA-256 fingerprint regardless of format. Other formats are recorded as "unsupported" for metadata but still fingerprinted. Format support is based on content decoding, not the file extension alone.
 - **Metadata kept:**
@@ -57,10 +58,13 @@ Record decisions that affect product behavior or architecture. Each entry should
   | Audio-only streams in supported containers above, plus MP3, M4A, AAC, WAV, FLAC, OGG, OPUS, WMA, AIFF, MKA | External ffprobe |
   | Everything else                         | none (recorded as unsupported)            |
 
-- **Tested formats:** JPEG, HEIC/HEIF, TIFF, MP4, MOV, AVI, and WebM were exercised on real sample files before audio/RAW support. Audio-only AAC in MP4 was subsequently confirmed in the user-provided testing folder. DNG, NEF, and ARW decoding have synthetic mocked unit coverage only until rawpy is installed and run against those real samples; they are implemented but not yet verified on real RAW content.
+- **Tested formats:** JPEG, HEIC/HEIF, TIFF, MP4, MOV, AVI, and WebM were exercised on real sample files before audio/RAW support. Audio-only AAC in MP4 was subsequently confirmed in the user-provided testing folder. DNG and NEF have synthetic mocked unit coverage and subsequently decoded real Nikon Z9 samples; the Sony ARW sample produced a LibRaw I/O error, so real-file ARW support remains unverified.
 - **Development setup:** ffprobe is an external FFmpeg executable, not a Python dependency. On Windows, the observed environment installed package `Gyan.FFmpeg` 9.0.2 through WinGet (`winget install --id Gyan.FFmpeg --exact`). Gyan.dev full builds are GPLv3; Sift does not bundle or download them. See [Gyan.dev build details](https://www.gyan.dev/ffmpeg/builds/) and [FFmpeg licensing](https://ffmpeg.org/legal.html).
+- **RAW component version and licenses:** The installed `rawpy==0.27.1` distribution declares `License-Expression: MIT`; its `LICENSE` begins “The MIT License (MIT).” The distribution includes the LGPL-2.1 text for LibRaw in `LICENSE.LibRaw`, which begins “GNU LESSER GENERAL PUBLIC LICENSE / Version 2.1, February 1999.” The installed build reports `libraw_version` and `libraw_version_compiled` as 0.22.1. LibRaw is dual-licensed under LGPL-2.1 or CDDL-1.0. Sources: [rawpy 0.27.1 on PyPI](https://pypi.org/project/rawpy/0.27.1/), [rawpy source](https://github.com/letmaik/rawpy), [LibRaw source](https://github.com/LibRaw/LibRaw), and [LibRaw licensing](https://www.libraw.org/about).
+- **Open packaging item:** Confirm bundled LibRaw version and license notices before packaging or distribution.
 - **Image validation:** Pillow's decompression-bomb warning is ignored while reading metadata; hard decompression-bomb errors and decoder errors remain per-file failures.
-- **RAW validation:** rawpy/LibRaw opens supported RAW inputs read-only and reads dimensions/timestamp only. Sift does not call rawpy postprocess, so it does not render or demosaic a full image. Support applies to the named DNG, NEF, and ARW extensions only, not to every camera/file advertised as RAW.
+- **RAW validation:** rawpy/LibRaw reads dimensions and an optional capture timestamp without postprocessing; Sift does not render or demosaic a full image. DNG and NEF decoded on the tested Nikon Z9 samples; the tested Sony ARW sample returned a LibRaw I/O error. DNG, NEF, and ARW are intended extractor inputs, but support is not established for every camera/file variant.
+- ARW is listed as intended handling but unverified; if it cannot be verified on a real file, move it to unsupported-for-metadata.
 - **Audio validation:** ffprobe inspects streams and selects a primary non-thumbnail video stream when present, otherwise a primary audio stream. Container parsing succeeds only when a decodable audio/video stream exists; initialization-only or otherwise incomplete files may therefore remain unsupported or fail per file.
 - **Synthetic test coverage:** generated files exercise the listed extraction paths, but do not qualify formats for the real-sample **Tested formats** list above.
 - **Unsupported media:** RAW extensions other than DNG, NEF, and ARW, unknown codecs, and containers without a decodable audio or video stream remain unsupported or report a per-file decode failure. All still receive SHA-256 fingerprints.
