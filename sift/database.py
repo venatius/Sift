@@ -1,11 +1,21 @@
 import sqlite3
 import time
 from pathlib import Path
+from urllib.parse import quote
 from uuid import uuid4
 
 
 def connect(db_path):
     conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def connect_readonly(db_path):
+    """Open an existing SQLite database without write access."""
+    path = quote(Path(db_path).absolute().as_posix(), safe="/:")
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -177,6 +187,42 @@ def get_files(conn, limit=1000):
 
 def count_files(conn):
     return conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+
+
+def get_exact_duplicate_groups(conn):
+    """Return eligible exact groups and the count of fingerprinted empty files."""
+    rows = conn.execute(
+        """
+        SELECT DISTINCT fingerprints.sha256, files.path, files.size
+        FROM fingerprints
+        JOIN files ON files.id = fingerprints.file_id
+        WHERE fingerprints.status = 'ok'
+          AND fingerprints.algorithm = 'sha256'
+          AND fingerprints.algorithm_version = '1'
+          AND files.status = 'ok'
+          AND fingerprints.input_size = files.size
+          AND fingerprints.input_modified_ns = files.modified_ns
+          AND fingerprints.sha256 != ''
+        ORDER BY fingerprints.sha256, files.path
+        """
+    ).fetchall()
+    groups = []
+    empty_file_count = 0
+    current_digest = None
+    current_paths = []
+    for row in rows:
+        if row["size"] == 0:
+            empty_file_count += 1
+            continue
+        if row["sha256"] != current_digest:
+            if len(current_paths) > 1:
+                groups.append((current_digest, current_paths))
+            current_digest = row["sha256"]
+            current_paths = []
+        current_paths.append(row["path"])
+    if len(current_paths) > 1:
+        groups.append((current_digest, current_paths))
+    return groups, empty_file_count
 
 
 def start_scan(conn, root_id):

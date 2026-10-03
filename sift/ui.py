@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import database
+from .duplicates import DuplicateWorker
 from .worker import ScanWorker
 
 LOCAL_APP_DATA = Path(
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
         self.folder = None
         self.thread = None
         self.worker = None
+        self.duplicate_worker = None
         self.paused = False
 
         self.folder_label = QLabel("No folder selected")
@@ -42,6 +44,7 @@ class MainWindow(QMainWindow):
         self.start_btn = QPushButton("Start Scan")
         self.pause_btn = QPushButton("Pause")
         self.cancel_btn = QPushButton("Cancel")
+        self.duplicates_btn = QPushButton("Find Exact Duplicates (All Folders)")
         self.status_label = QLabel("Ready")
         self.count_label = QLabel("Files found: 0")
         self.saved_label = QLabel("")
@@ -50,7 +53,8 @@ class MainWindow(QMainWindow):
         self.force_rehash_check = QCheckBox("Verify all file contents (slower)")
 
         buttons = QHBoxLayout()
-        for b in (self.choose_btn, self.start_btn, self.pause_btn, self.cancel_btn):
+        for b in (self.choose_btn, self.start_btn, self.pause_btn, self.cancel_btn,
+                  self.duplicates_btn):
             buttons.addWidget(b)
 
         layout = QVBoxLayout()
@@ -68,6 +72,7 @@ class MainWindow(QMainWindow):
         self.start_btn.clicked.connect(self.start_scan)
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.cancel_btn.clicked.connect(self.cancel_scan)
+        self.duplicates_btn.clicked.connect(self.find_exact_duplicates)
 
         self.set_scanning(False)
         self.init_database()
@@ -106,6 +111,7 @@ class MainWindow(QMainWindow):
         self.start_btn.setEnabled(not scanning and self.folder is not None)
         self.pause_btn.setEnabled(scanning)
         self.cancel_btn.setEnabled(scanning)
+        self.duplicates_btn.setEnabled(not scanning)
 
     # ----- user actions -----
     def choose_folder(self):
@@ -147,6 +153,47 @@ class MainWindow(QMainWindow):
     def cancel_scan(self):
         self.status_label.setText("Cancelling...")
         self.worker.cancel()
+
+    def find_exact_duplicates(self):
+        if self.duplicate_worker is not None:
+            return
+        self.status_label.setText("Finding exact duplicates from saved fingerprints...")
+        self.duplicates_btn.setEnabled(False)
+        self.duplicate_worker = DuplicateWorker(DB_PATH)
+        self.duplicate_worker.groups_ready.connect(self.on_duplicate_groups)
+        self.duplicate_worker.query_failed.connect(self.on_duplicate_query_failed)
+        self.duplicate_worker.finished.connect(self.on_duplicate_worker_finished)
+        self.duplicate_worker.start()
+
+    def on_duplicate_groups(self, groups, empty_file_count):
+        summary = (
+            f"{empty_file_count} empty files (not listed as duplicates).\n"
+            "Results cover all saved library folders; paths may come from different roots.\n"
+            "Rescan to refresh results before relying on them."
+        )
+        if not groups:
+            self.report.setPlainText(
+                "No exact duplicates found among current successful SHA-256 fingerprints.\n"
+                + summary
+            )
+        else:
+            lines = [
+                f"Found {len(groups)} exact duplicate group(s).",
+                summary,
+            ]
+            for index, (digest, paths) in enumerate(groups, start=1):
+                lines.extend((f"\nGroup {index} ({len(paths)} files; SHA-256 {digest}):",
+                              *(f"  {path}" for path in paths)))
+            self.report.setPlainText("\n".join(lines))
+        self.status_label.setText("Exact duplicate results ready (read-only).")
+
+    def on_duplicate_query_failed(self, message):
+        self.report.setPlainText(f"Could not load exact duplicate results:\n{message}")
+        self.status_label.setText("Could not find exact duplicates")
+
+    def on_duplicate_worker_finished(self):
+        self.duplicate_worker = None
+        self.duplicates_btn.setEnabled(self.thread is None)
 
     # ----- updates from the worker -----
     def on_progress(self, total, path):
@@ -202,4 +249,6 @@ class MainWindow(QMainWindow):
             self.worker.cancel()
             self.thread.quit()
             self.thread.wait()
+        if self.duplicate_worker is not None:
+            self.duplicate_worker.wait()
         event.accept()
