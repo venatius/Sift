@@ -32,8 +32,18 @@ class ExactDuplicateTests(unittest.TestCase):
         self.conn.close()
         self.temp.cleanup()
 
-    def add_file(self, name, digest, *, status="ok", algorithm="sha256",
-                 version="1", fingerprint_status="ok", matching_signature=True, size=42):
+    def add_file(
+        self,
+        name,
+        digest,
+        *,
+        status="ok",
+        algorithm="sha256",
+        version="1",
+        fingerprint_status="ok",
+        matching_signature=True,
+        size=42,
+    ):
         path = str(Path(self.temp.name) / name)
         modified_ns = 123456789
         self.conn.execute(
@@ -42,13 +52,17 @@ class ExactDuplicateTests(unittest.TestCase):
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (self.root_id, path, size, 1.0, modified_ns, status, 1.0),
         )
-        file_id = self.conn.execute(
-            "SELECT id FROM files WHERE path = ?", (path,)
-        ).fetchone()["id"]
+        file_id = self.conn.execute("SELECT id FROM files WHERE path = ?", (path,)).fetchone()["id"]
         database.save_fingerprint(
-            self.conn, file_id, digest, size if matching_signature else size + 1,
-            1.0, modified_ns, status=fingerprint_status,
-            algorithm=algorithm, algorithm_version=version,
+            self.conn,
+            file_id,
+            digest,
+            size if matching_signature else size + 1,
+            1.0,
+            modified_ns,
+            status=fingerprint_status,
+            algorithm=algorithm,
+            algorithm_version=version,
         )
         self.conn.commit()
         return path

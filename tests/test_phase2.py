@@ -73,29 +73,33 @@ class PhaseTwoTests(unittest.TestCase):
         image_path = self.root / "photo.jpg"
         Image.new("RGB", (17, 11), "red").save(image_path)
         result = metadata.extract_image_metadata(str(image_path))
-        self.assertEqual((result.status, result.detected_format, result.width, result.height),
-                         ("ok", "JPEG", 17, 11))
+        self.assertEqual(
+            (result.status, result.detected_format, result.width, result.height),
+            ("ok", "JPEG", 17, 11),
+        )
 
         corrupt = self.root / "broken.jpg"
         corrupt.write_bytes(b"not an image")
         self.assertEqual(metadata.extract_image_metadata(str(corrupt)).status, "failed")
-        self.assertEqual(metadata.extract(str(corrupt), None, lambda: False).status,
-                         "unsupported")
+        self.assertEqual(metadata.extract(str(corrupt), None, lambda: False).status, "unsupported")
 
     def test_corrupt_raw_and_unsupported_extension_statuses(self):
         corrupt_raw = self.root / "broken.dng"
         corrupt_raw.write_bytes(b"not a RAW image")
         raw_kind = metadata.kind_for(str(corrupt_raw))
         self.assertEqual(raw_kind, "raw")
-        self.assertEqual(metadata.extract(str(corrupt_raw), raw_kind,
-                                          lambda: False).status, "failed")
+        self.assertEqual(
+            metadata.extract(str(corrupt_raw), raw_kind, lambda: False).status, "failed"
+        )
 
         unsupported = self.root / "unknown.xyz"
         unsupported.write_bytes(b"not a supported media file")
         unsupported_kind = metadata.kind_for(str(unsupported))
         self.assertIsNone(unsupported_kind)
-        self.assertEqual(metadata.extract(str(unsupported), unsupported_kind,
-                                          lambda: False).status, "unsupported")
+        self.assertEqual(
+            metadata.extract(str(unsupported), unsupported_kind, lambda: False).status,
+            "unsupported",
+        )
 
     def test_content_signature_overrides_unfamiliar_extension(self):
         image_path = self.root / "photo.payload"
@@ -109,32 +113,55 @@ class PhaseTwoTests(unittest.TestCase):
 
     def test_video_missing_tool_and_malformed_output(self):
         with patch.object(metadata, "ffprobe_path", return_value=None):
-            self.assertIn("ffprobe not found", metadata.extract_video_metadata(
-                str(self.root / "missing.mp4"), lambda: False).error)
-        with patch.object(metadata, "ffprobe_path", return_value="ffprobe"), \
-                patch.object(metadata, "_run_ffprobe", return_value=(0, b"{bad", b"")):
-            self.assertEqual(metadata.extract_video_metadata(
-                str(self.root / "bad.mp4"), lambda: False).status, "failed")
+            self.assertIn(
+                "ffprobe not found",
+                metadata.extract_video_metadata(
+                    str(self.root / "missing.mp4"), lambda: False
+                ).error,
+            )
+        with (
+            patch.object(metadata, "ffprobe_path", return_value="ffprobe"),
+            patch.object(metadata, "_run_ffprobe", return_value=(0, b"{bad", b"")),
+        ):
+            self.assertEqual(
+                metadata.extract_video_metadata(str(self.root / "bad.mp4"), lambda: False).status,
+                "failed",
+            )
 
         audio_only = b'{"streams":[{"codec_type":"audio"}],"format":{}}'
-        with patch.object(metadata, "ffprobe_path", return_value="ffprobe"), \
-                patch.object(metadata, "_run_ffprobe", return_value=(0, audio_only, b"")):
+        with (
+            patch.object(metadata, "ffprobe_path", return_value="ffprobe"),
+            patch.object(metadata, "_run_ffprobe", return_value=(0, audio_only, b"")),
+        ):
             result = metadata.extract_video_metadata(
-                str(self.root / "audio-only.mp4"), lambda: False)
+                str(self.root / "audio-only.mp4"), lambda: False
+            )
             self.assertEqual((result.status, result.media_kind), ("ok", "audio"))
 
-        stream_data = (b'{"streams":[{"codec_type":"audio","codec_name":"aac",'
-                       b'"sample_rate":"48000","channels":2,"channel_layout":"stereo",'
-                       b'"bit_rate":"128000"}],"format":{"format_name":"mov,mp4",'
-                       b'"duration":"2.5"}}')
-        with patch.object(metadata, "ffprobe_path", return_value="ffprobe"), \
-                patch.object(metadata, "_run_ffprobe", return_value=(0, stream_data, b"")):
+        stream_data = (
+            b'{"streams":[{"codec_type":"audio","codec_name":"aac",'
+            b'"sample_rate":"48000","channels":2,"channel_layout":"stereo",'
+            b'"bit_rate":"128000"}],"format":{"format_name":"mov,mp4",'
+            b'"duration":"2.5"}}'
+        )
+        with (
+            patch.object(metadata, "ffprobe_path", return_value="ffprobe"),
+            patch.object(metadata, "_run_ffprobe", return_value=(0, stream_data, b"")),
+        ):
             result = metadata.extract_video_metadata(
-                str(self.root / "audio-only.mp4"), lambda: False)
-        self.assertEqual((result.audio_codec, result.audio_sample_rate,
-                          result.audio_channels, result.audio_channel_layout,
-                          result.audio_bit_rate, result.duration_seconds),
-                         ("aac", 48000, 2, "stereo", 128000, 2.5))
+                str(self.root / "audio-only.mp4"), lambda: False
+            )
+        self.assertEqual(
+            (
+                result.audio_codec,
+                result.audio_sample_rate,
+                result.audio_channels,
+                result.audio_channel_layout,
+                result.audio_bit_rate,
+                result.duration_seconds,
+            ),
+            ("aac", 48000, 2, "stereo", 128000, 2.5),
+        )
 
     def test_raw_decode_extracts_metadata_without_rendering(self):
         self.assertEqual(metadata.extractor_info("raw"), ("rawpy", "0.27.1+sift2"))
@@ -154,26 +181,39 @@ class PhaseTwoTests(unittest.TestCase):
             def __exit__(self, *_):
                 return False
 
-        fake_rawpy = type("RawPy", (), {
-            "__version__": "test",
-            "imread": staticmethod(lambda path: RawImage()),
-            "postprocess": staticmethod(lambda *args: self.fail("must not render")),
-        })
+        fake_rawpy = type(
+            "RawPy",
+            (),
+            {
+                "__version__": "test",
+                "imread": staticmethod(lambda path: RawImage()),
+                "postprocess": staticmethod(lambda *args: self.fail("must not render")),
+            },
+        )
         for extension in (".dng", ".nef", ".arw"):
             path = self.root / f"raw{extension}"
             path.write_bytes(b"II*\x00synthetic raw fixture")
             self.assertEqual(metadata.kind_for(str(path)), "raw")
             with patch.object(metadata, "rawpy", fake_rawpy):
                 result = metadata.extract(str(path), "raw", lambda: False)
-            self.assertEqual((result.status, result.media_kind, result.width, result.height),
-                             ("ok", "image", 4000, 3000))
+            self.assertEqual(
+                (result.status, result.media_kind, result.width, result.height),
+                ("ok", "image", 4000, 3000),
+            )
 
     def test_database_schema_v3_has_audio_fields(self):
         conn = database.connect(self.db_path)
         self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 3)
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(media_metadata)")}
-        self.assertTrue({"audio_codec", "audio_sample_rate", "audio_channels",
-                         "audio_channel_layout", "audio_bit_rate"}.issubset(columns))
+        self.assertTrue(
+            {
+                "audio_codec",
+                "audio_sample_rate",
+                "audio_channels",
+                "audio_channel_layout",
+                "audio_bit_rate",
+            }.issubset(columns)
+        )
         conn.close()
 
     def test_database_migration_preserves_phase1_records_and_enforces_fks(self):
@@ -195,8 +235,9 @@ class PhaseTwoTests(unittest.TestCase):
         self.assertTrue(database.migrate_database(old_path, new_path))
         conn = database.connect(new_path)
         database.init_db(conn)
-        self.assertEqual(conn.execute("SELECT path FROM files WHERE id=1").fetchone()[0],
-                         "fixture-root/file")
+        self.assertEqual(
+            conn.execute("SELECT path FROM files WHERE id=1").fetchone()[0], "fixture-root/file"
+        )
         self.assertEqual(conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)
         with self.assertRaises(sqlite3.IntegrityError):
             conn.execute("INSERT INTO files(root_id,path,status,last_seen) VALUES (99,'x','ok',1)")
@@ -216,12 +257,12 @@ class PhaseTwoTests(unittest.TestCase):
         (self.root / "progress.bin").write_bytes(b"p" * (2 * 1024 * 1024))
         worker = ScanWorker(str(self.root), self.db_path)
         progress = []
-        worker.stage_progress.connect(lambda stage, current, total:
-                                       progress.append((stage, current, total)))
+        worker.stage_progress.connect(
+            lambda stage, current, total: progress.append((stage, current, total))
+        )
         worker.run()
         self.assertTrue(progress)
-        self.assertEqual(progress[-1], ("fingerprint", 2 * 1024 * 1024,
-                                        2 * 1024 * 1024))
+        self.assertEqual(progress[-1], ("fingerprint", 2 * 1024 * 1024, 2 * 1024 * 1024))
 
     def test_metadata_and_fingerprint_fail_independently(self):
         (self.root / "one.bin").write_bytes(b"payload")
@@ -280,9 +321,7 @@ class PhaseTwoTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["meta_failed"], 0)
-        self.assertTrue(
-            any(path == "(scan stopped unexpectedly)" for path, _ in result["errors"])
-        )
+        self.assertTrue(any(path == "(scan stopped unexpectedly)" for path, _ in result["errors"]))
 
     def test_fingerprint_error_isolated_to_one_file(self):
         bad_path = self.root / "bad.bin"
@@ -327,9 +366,7 @@ class PhaseTwoTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["fp_failed"], 0)
-        self.assertTrue(
-            any(path == "(scan stopped unexpectedly)" for path, _ in result["errors"])
-        )
+        self.assertTrue(any(path == "(scan stopped unexpectedly)" for path, _ in result["errors"]))
 
     def test_database_and_finish_errors_close_connection_and_finish_thread(self):
         (self.root / "one.bin").write_bytes(b"fixture")
@@ -351,17 +388,19 @@ class PhaseTwoTests(unittest.TestCase):
         thread.finished.connect(worker.deleteLater)
         thread.started.connect(worker.run)
 
-        with patch.object(database, "connect", side_effect=capture_connection), \
-                patch.object(
-                    database,
-                    "get_metadata",
-                    side_effect=sqlite3.OperationalError("metadata db fault"),
-                ), \
-                patch.object(
-                    database,
-                    "finish_scan",
-                    side_effect=sqlite3.OperationalError("finish db fault"),
-                ):
+        with (
+            patch.object(database, "connect", side_effect=capture_connection),
+            patch.object(
+                database,
+                "get_metadata",
+                side_effect=sqlite3.OperationalError("metadata db fault"),
+            ),
+            patch.object(
+                database,
+                "finish_scan",
+                side_effect=sqlite3.OperationalError("finish db fault"),
+            ),
+        ):
             thread.start()
             finished = thread.wait(5000)
 
@@ -432,8 +471,10 @@ class PhaseTwoTests(unittest.TestCase):
         (self.root / "notes.txt").write_text("fixture")
         with patch.dict("os.environ", {"LOCALAPPDATA": str(Path(self.temp.name) / "appdata")}):
             ui = importlib.import_module("sift.ui")
-        with patch.object(ui, "DB_PATH", self.db_path), \
-                patch.object(ui, "LEGACY_DB_PATH", str(Path(self.temp.name) / "no-legacy.db")):
+        with (
+            patch.object(ui, "DB_PATH", self.db_path),
+            patch.object(ui, "LEGACY_DB_PATH", str(Path(self.temp.name) / "no-legacy.db")),
+        ):
             window = ui.MainWindow()
             window.folder = str(self.root)
             window.start_scan()
@@ -463,9 +504,11 @@ class PhaseTwoTests(unittest.TestCase):
             while not should_stop():
                 time.sleep(0.005)
 
-        with patch.object(ui, "DB_PATH", self.db_path), \
-                patch.object(ui, "LEGACY_DB_PATH", str(Path(self.temp.name) / "no-legacy.db")), \
-                patch.object(fingerprint, "sha256_file", side_effect=waiting_hash):
+        with (
+            patch.object(ui, "DB_PATH", self.db_path),
+            patch.object(ui, "LEGACY_DB_PATH", str(Path(self.temp.name) / "no-legacy.db")),
+            patch.object(fingerprint, "sha256_file", side_effect=waiting_hash),
+        ):
             window = ui.MainWindow()
             window.folder = str(self.root)
             window.start_scan()
@@ -489,6 +532,7 @@ class PhaseTwoTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM fingerprints").fetchone()[0], 0)
             conn.close()
             window.close()
+
 
 if __name__ == "__main__":
     unittest.main()

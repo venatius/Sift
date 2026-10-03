@@ -47,7 +47,9 @@ def scan_folder(root: str) -> Iterator[ScanItem]:
                 except StopIteration:
                     break
                 except OSError as e:
-                    yield ScanItem(folder, None, None, "failed", f"Error reading folder: {_reason(e)}")
+                    yield ScanItem(
+                        folder, None, None, "failed", f"Error reading folder: {_reason(e)}"
+                    )
                     break
 
                 try:
@@ -61,8 +63,13 @@ def scan_folder(root: str) -> Iterator[ScanItem]:
                     elif is_dir:
                         stack.append(entry.path)
                     else:
-                        yield ScanItem(entry.path, info.st_size, info.st_mtime, "ok",
-                                       modified_ns=info.st_mtime_ns)
+                        yield ScanItem(
+                            entry.path,
+                            info.st_size,
+                            info.st_mtime,
+                            "ok",
+                            modified_ns=info.st_mtime_ns,
+                        )
                 except OSError as e:
                     yield ScanItem(entry.path, None, None, "failed", f"Cannot read: {_reason(e)}")
 

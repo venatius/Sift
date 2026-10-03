@@ -54,9 +54,7 @@ def main() -> int:
         print(f"Phase status check failed: {detail}", file=sys.stderr)
         return 1
 
-    summary = "; ".join(
-        f"{phase}: {agents_statuses[phase]}" for phase in sorted(agents_phases)
-    )
+    summary = "; ".join(f"{phase}: {agents_statuses[phase]}" for phase in sorted(agents_phases))
     print(f"Phase statuses synchronized: {summary}")
     return 0
 

@@ -13,9 +13,9 @@ MAX_ERRORS_SHOWN = 200
 
 
 class ScanWorker(QObject):
-    progress = Signal(int, str)   # items processed so far, current path
+    progress = Signal(int, str)  # items processed so far, current path
     stage_progress = Signal(str, int, int)  # stage, current bytes, total bytes
-    scan_done = Signal(dict)      # final summary
+    scan_done = Signal(dict)  # final summary
 
     def __init__(self, root_path, db_path, force_rehash=False):
         super().__init__()
@@ -62,12 +62,21 @@ class ScanWorker(QObject):
         result = metadata.MetadataResult("failed", error=message, retryable=True)
         name, version = metadata.extractor_info(metadata.kind_for(item.path))
         if stage == "metadata":
-            database.save_metadata(conn, file_id, name, version, result,
-                                   item.size, item.modified, item.modified_ns)
+            database.save_metadata(
+                conn, file_id, name, version, result, item.size, item.modified, item.modified_ns
+            )
             summary["meta_failed"] += 1
         else:
-            database.save_fingerprint(conn, file_id, "", item.size, item.modified,
-                                      item.modified_ns, status="failed", error=message)
+            database.save_fingerprint(
+                conn,
+                file_id,
+                "",
+                item.size,
+                item.modified,
+                item.modified_ns,
+                status="failed",
+                error=message,
+            )
             summary["fp_failed"] += 1
         database.mark_file_for_retry(conn, file_id, message)
         self._add_error(summary, item.path, message)
@@ -95,11 +104,13 @@ class ScanWorker(QObject):
         except sqlite3.Error:
             raise
         except Exception as error:  # noqa: BLE001 - Isolate unexpected per-file metadata failures.
-            result = metadata.MetadataResult("failed", error=f"Metadata error: {error}",
-                                             retryable=True)
+            result = metadata.MetadataResult(
+                "failed", error=f"Metadata error: {error}", retryable=True
+            )
             name, version = metadata.extractor_info(metadata.kind_for(item.path))
-            database.save_metadata(conn, file_id, name, version, result,
-                                   item.size, item.modified, item.modified_ns)
+            database.save_metadata(
+                conn, file_id, name, version, result, item.size, item.modified, item.modified_ns
+            )
             summary["meta_failed"] += 1
             self._add_error(summary, item.path, result.error)
 
@@ -112,8 +123,16 @@ class ScanWorker(QObject):
             raise
         except Exception as error:  # noqa: BLE001 - Isolate unexpected per-file hashing failures.
             message = f"Fingerprint error: {error}"
-            database.save_fingerprint(conn, file_id, "", item.size, item.modified,
-                                      item.modified_ns, status="failed", error=message)
+            database.save_fingerprint(
+                conn,
+                file_id,
+                "",
+                item.size,
+                item.modified,
+                item.modified_ns,
+                status="failed",
+                error=message,
+            )
             summary["fp_failed"] += 1
             self._add_error(summary, item.path, message)
         return True
@@ -122,10 +141,13 @@ class ScanWorker(QObject):
         kind = metadata.kind_for(item.path)
         name, version = metadata.extractor_info(kind)
         old = database.get_metadata(conn, file_id, name, version)
-        if (old and old["status"] in ("ok", "unsupported", "failed")
-                and not old["retryable"]
-                and old["input_size"] == item.size
-                and old["input_modified_ns"] == item.modified_ns):
+        if (
+            old
+            and old["status"] in ("ok", "unsupported", "failed")
+            and not old["retryable"]
+            and old["input_size"] == item.size
+            and old["input_modified_ns"] == item.modified_ns
+        ):
             summary["meta_reused"] += 1
             return True
 
@@ -140,12 +162,15 @@ class ScanWorker(QObject):
         except OSError:
             current = None
         if current != self._item_signature(item):
-            result = metadata.MetadataResult("failed", error=
-                "File changed during metadata extraction; retry it on the next scan",
-                retryable=True)
+            result = metadata.MetadataResult(
+                "failed",
+                error="File changed during metadata extraction; retry it on the next scan",
+                retryable=True,
+            )
             database.mark_file_for_retry(conn, file_id, result.error)
-        database.save_metadata(conn, file_id, name, version, result,
-                               item.size, item.modified, item.modified_ns)
+        database.save_metadata(
+            conn, file_id, name, version, result, item.size, item.modified, item.modified_ns
+        )
         summary["meta_" + result.status] += 1
         if result.status == "failed":
             self._add_error(summary, item.path, result.error)
@@ -153,11 +178,15 @@ class ScanWorker(QObject):
 
     def _do_fingerprint(self, conn, file_id, item, summary, total=0):
         old = database.get_fingerprint(conn, file_id)
-        if (not self.force_rehash and old and old["status"] == "ok"
-                and old["algorithm"] == "sha256"
-                and old["algorithm_version"] == "1"
-                and old["input_size"] == item.size
-                and old["input_modified_ns"] == item.modified_ns):
+        if (
+            not self.force_rehash
+            and old
+            and old["status"] == "ok"
+            and old["algorithm"] == "sha256"
+            and old["algorithm_version"] == "1"
+            and old["input_size"] == item.size
+            and old["input_modified_ns"] == item.modified_ns
+        ):
             summary["fp_reused"] += 1
             return True
         before = self._signature(item.path)
@@ -176,9 +205,16 @@ class ScanWorker(QObject):
             digest = fingerprint.sha256_file(item.path, self._checkpoint, report_bytes)
         except OSError as e:
             summary["fp_failed"] += 1
-            database.save_fingerprint(conn, file_id, "", item.size, item.modified,
-                                      item.modified_ns, status="failed",
-                                      error=f"Could not fingerprint: {e}")
+            database.save_fingerprint(
+                conn,
+                file_id,
+                "",
+                item.size,
+                item.modified,
+                item.modified_ns,
+                status="failed",
+                error=f"Could not fingerprint: {e}",
+            )
             self._add_error(summary, item.path, f"Could not fingerprint: {e}")
             return True
         if digest is None:
@@ -190,16 +226,24 @@ class ScanWorker(QObject):
         if after != before or after != self._item_signature(item):
             self._mark_changed(conn, file_id, item, summary, "fingerprint")
             return True
-        database.save_fingerprint(conn, file_id, digest, item.size, item.modified,
-                                  item.modified_ns)
+        database.save_fingerprint(conn, file_id, digest, item.size, item.modified, item.modified_ns)
         summary["fp_done"] += 1
         return True
 
     def run(self):
         summary = {
-            "scanned": 0, "skipped": 0, "failed": 0, "cancelled": False, "errors": [],
-            "meta_ok": 0, "meta_unsupported": 0, "meta_failed": 0, "meta_reused": 0,
-            "fp_done": 0, "fp_reused": 0, "fp_failed": 0,
+            "scanned": 0,
+            "skipped": 0,
+            "failed": 0,
+            "cancelled": False,
+            "errors": [],
+            "meta_ok": 0,
+            "meta_unsupported": 0,
+            "meta_failed": 0,
+            "meta_reused": 0,
+            "fp_done": 0,
+            "fp_reused": 0,
+            "fp_failed": 0,
         }
         conn = None
         scan_id = None
@@ -213,7 +257,7 @@ class ScanWorker(QObject):
             seen_at = time.time()
 
             for item in scan_folder(self.root_path):
-                self._running.wait()              # blocks here while paused
+                self._running.wait()  # blocks here while paused
                 if self._cancel.is_set():
                     summary["cancelled"] = True
                     final_status = "cancelled"
@@ -237,7 +281,7 @@ class ScanWorker(QObject):
                         final_status = "cancelled"
                         break
                 else:
-                    summary[item.status] += 1     # "skipped" or "failed"
+                    summary[item.status] += 1  # "skipped" or "failed"
                     if item.status == "failed":
                         summary["failed"] += 1
                     self._add_error(summary, item.path, item.error)

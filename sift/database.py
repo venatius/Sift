@@ -46,7 +46,9 @@ def migrate_database(source_path, destination_path):
 def init_db(conn):
     schema_version = conn.execute("PRAGMA user_version").fetchone()[0]
     if schema_version > 3:
-        raise RuntimeError(f"Database schema version {schema_version} is newer than this app supports")
+        raise RuntimeError(
+            f"Database schema version {schema_version} is newer than this app supports"
+        )
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS roots (
             id INTEGER PRIMARY KEY,
@@ -141,9 +143,15 @@ def init_db(conn):
             for column, definition in columns.items():
                 if column not in existing:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-        conn.execute("UPDATE files SET modified_ns = CAST(modified * 1000000000 AS INTEGER) WHERE modified_ns IS NULL AND modified IS NOT NULL")
-        conn.execute("UPDATE media_metadata SET input_modified_ns = CAST(input_modified * 1000000000 AS INTEGER) WHERE input_modified_ns IS NULL AND input_modified IS NOT NULL")
-        conn.execute("UPDATE fingerprints SET input_modified_ns = CAST(input_modified * 1000000000 AS INTEGER) WHERE input_modified_ns IS NULL AND input_modified IS NOT NULL")
+        conn.execute(
+            "UPDATE files SET modified_ns = CAST(modified * 1000000000 AS INTEGER) WHERE modified_ns IS NULL AND modified IS NOT NULL"
+        )
+        conn.execute(
+            "UPDATE media_metadata SET input_modified_ns = CAST(input_modified * 1000000000 AS INTEGER) WHERE input_modified_ns IS NULL AND input_modified IS NOT NULL"
+        )
+        conn.execute(
+            "UPDATE fingerprints SET input_modified_ns = CAST(input_modified * 1000000000 AS INTEGER) WHERE input_modified_ns IS NULL AND input_modified IS NOT NULL"
+        )
         conn.execute("PRAGMA user_version = 3")
         conn.commit()
     except Exception:
@@ -173,8 +181,16 @@ def save_file(conn, root_id, item, seen_at):
             error = excluded.error,
             last_seen = excluded.last_seen
         """,
-        (root_id, item.path, item.size, item.modified, item.modified_ns,
-         item.status, item.error, seen_at),
+        (
+            root_id,
+            item.path,
+            item.size,
+            item.modified,
+            item.modified_ns,
+            item.status,
+            item.error,
+            seen_at,
+        ),
     )
 
 
@@ -263,8 +279,10 @@ def get_latest_root(conn):
         """
     ).fetchone()
 
-def save_metadata(conn, file_id, extractor, version, r, input_size, input_modified,
-                  input_modified_ns):
+
+def save_metadata(
+    conn, file_id, extractor, version, r, input_size, input_modified, input_modified_ns
+):
     conn.execute(
         """
         INSERT INTO media_metadata (file_id, extractor, extractor_version,
@@ -297,14 +315,36 @@ def save_metadata(conn, file_id, extractor, version, r, input_size, input_modifi
             status = excluded.status, error = excluded.error,
             retryable = excluded.retryable
         """,
-        (file_id, extractor, version, r.media_kind, r.detected_format,
-         r.width, r.height, r.duration_seconds, r.video_codec,
-         r.audio_codec, r.audio_sample_rate, r.audio_channels,
-         r.audio_channel_layout, r.audio_bit_rate,
-         r.capture_date, r.capture_date_source, r.camera_make,
-         r.camera_model, r.orientation, input_size, input_modified, input_modified_ns,
-         time.time(), r.status, r.error, int(r.retryable)),
+        (
+            file_id,
+            extractor,
+            version,
+            r.media_kind,
+            r.detected_format,
+            r.width,
+            r.height,
+            r.duration_seconds,
+            r.video_codec,
+            r.audio_codec,
+            r.audio_sample_rate,
+            r.audio_channels,
+            r.audio_channel_layout,
+            r.audio_bit_rate,
+            r.capture_date,
+            r.capture_date_source,
+            r.camera_make,
+            r.camera_model,
+            r.orientation,
+            input_size,
+            input_modified,
+            input_modified_ns,
+            time.time(),
+            r.status,
+            r.error,
+            int(r.retryable),
+        ),
     )
+
 
 def get_file_id(conn, root_id, path):
     row = conn.execute(
@@ -331,8 +371,18 @@ def get_fingerprint(conn, file_id):
     ).fetchone()
 
 
-def save_fingerprint(conn, file_id, sha256, size, modified, modified_ns,
-                     status="ok", error=None, algorithm="sha256", algorithm_version="1"):
+def save_fingerprint(
+    conn,
+    file_id,
+    sha256,
+    size,
+    modified,
+    modified_ns,
+    status="ok",
+    error=None,
+    algorithm="sha256",
+    algorithm_version="1",
+):
     conn.execute(
         """
         INSERT INTO fingerprints (file_id, sha256, input_size, input_modified,
@@ -349,11 +399,20 @@ def save_fingerprint(conn, file_id, sha256, size, modified, modified_ns,
             error = excluded.error,
             computed_at = excluded.computed_at
         """,
-        (file_id, sha256, size, modified, modified_ns, algorithm,
-         algorithm_version, status, error, time.time()),
+        (
+            file_id,
+            sha256,
+            size,
+            modified,
+            modified_ns,
+            algorithm,
+            algorithm_version,
+            status,
+            error,
+            time.time(),
+        ),
     )
 
 
 def mark_file_for_retry(conn, file_id, message):
-    conn.execute("UPDATE files SET status = 'retry', error = ? WHERE id = ?",
-                 (message, file_id))
+    conn.execute("UPDATE files SET status = 'retry', error = ? WHERE id = ?", (message, file_id))

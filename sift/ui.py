@@ -18,9 +18,7 @@ from . import database
 from .duplicates import DuplicateWorker
 from .worker import ScanWorker
 
-LOCAL_APP_DATA = Path(
-    os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")
-)
+LOCAL_APP_DATA = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
 SIFT_DATA_DIR = LOCAL_APP_DATA / "Sift"
 SIFT_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = str(SIFT_DATA_DIR / "sift.db")
@@ -53,13 +51,25 @@ class MainWindow(QMainWindow):
         self.force_rehash_check = QCheckBox("Verify all file contents (slower)")
 
         buttons = QHBoxLayout()
-        for b in (self.choose_btn, self.start_btn, self.pause_btn, self.cancel_btn,
-                  self.duplicates_btn):
+        for b in (
+            self.choose_btn,
+            self.start_btn,
+            self.pause_btn,
+            self.cancel_btn,
+            self.duplicates_btn,
+        ):
             buttons.addWidget(b)
 
         layout = QVBoxLayout()
-        for w in (self.folder_label, buttons, self.force_rehash_check, self.status_label,
-                  self.count_label, self.saved_label, self.report):
+        for w in (
+            self.folder_label,
+            buttons,
+            self.force_rehash_check,
+            self.status_label,
+            self.count_label,
+            self.saved_label,
+            self.report,
+        ):
             if isinstance(w, QHBoxLayout):
                 layout.addLayout(w)
             else:
@@ -127,8 +137,9 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Scanning...")
 
         self.thread = QThread()
-        self.worker = ScanWorker(self.folder, DB_PATH,
-                                 force_rehash=self.force_rehash_check.isChecked())
+        self.worker = ScanWorker(
+            self.folder, DB_PATH, force_rehash=self.force_rehash_check.isChecked()
+        )
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self.on_progress)
@@ -182,8 +193,12 @@ class MainWindow(QMainWindow):
                 summary,
             ]
             for index, (digest, paths) in enumerate(groups, start=1):
-                lines.extend((f"\nGroup {index} ({len(paths)} files; SHA-256 {digest}):",
-                              *(f"  {path}" for path in paths)))
+                lines.extend(
+                    (
+                        f"\nGroup {index} ({len(paths)} files; SHA-256 {digest}):",
+                        *(f"  {path}" for path in paths),
+                    )
+                )
             self.report.setPlainText("\n".join(lines))
         self.status_label.setText("Exact duplicate results ready (read-only).")
 
@@ -218,7 +233,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Scan failed")
         elif s["cancelled"]:
             self.status_label.setText("Scan cancelled")
-        elif (s["failed"] or s["meta_failed"] or s["fp_failed"] or s["errors"]):
+        elif s["failed"] or s["meta_failed"] or s["fp_failed"] or s["errors"]:
             self.status_label.setText("Scan finished with errors")
         else:
             self.status_label.setText("Scan finished")

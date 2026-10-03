@@ -19,12 +19,22 @@ except ImportError:
 
 pillow_heif.register_heif_opener()  # lets Pillow open HEIC/HEIF files
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
-              ".tif", ".tiff", ".heic", ".heif"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif"}
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".3gp", ".mkv", ".avi", ".webm", ".mts"}
 RAW_EXTS = {".dng", ".nef", ".arw"}
-AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus",
-              ".wma", ".aiff", ".aif", ".mka"}
+AUDIO_EXTS = {
+    ".mp3",
+    ".m4a",
+    ".aac",
+    ".wav",
+    ".flac",
+    ".ogg",
+    ".opus",
+    ".wma",
+    ".aiff",
+    ".aif",
+    ".mka",
+}
 IMAGE_FORMATS = {"JPEG", "PNG", "GIF", "WEBP", "BMP", "TIFF", "HEIF"}
 FFPROBE_TIMEOUT = 30  # seconds
 
@@ -79,15 +89,25 @@ def _kind_from_signature(path):
             header = media_file.read(16)
     except OSError:
         return None
-    if header.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a",
-                          b"BM", b"II*\x00", b"MM\x00*")):
+    if header.startswith(
+        (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a", b"BM", b"II*\x00", b"MM\x00*")
+    ):
         return "image"
     if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
         return "image"
     if header[4:8] == b"ftyp":
         brand = header[8:12]
-        if brand in (b"heic", b"heif", b"heix", b"hevc", b"hevx", b"mif1",
-                     b"msf1", b"avif", b"avis"):
+        if brand in (
+            b"heic",
+            b"heif",
+            b"heix",
+            b"hevc",
+            b"hevx",
+            b"mif1",
+            b"msf1",
+            b"avif",
+            b"avis",
+        ):
             return "image"
         return "video"
     if header.startswith(b"\x1aE\xdf\xa3"):
@@ -115,8 +135,14 @@ def _ffprobe_version():
     if not exe:
         return "missing"
     try:
-        out = subprocess.run([exe, "-version"], capture_output=True, text=True, check=False,
-                             timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+        out = subprocess.run(
+            [exe, "-version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
         return out.stdout.split("\n")[0].split()[2]  # "ffprobe version X ..."
     except (OSError, subprocess.SubprocessError, IndexError):
         return "unknown"
@@ -151,8 +177,11 @@ def extract(path, kind, cancel_check):
 # ----- images -----
 def extract_raw_metadata(path):
     if rawpy is None:
-        return MetadataResult("failed", media_kind="image",
-                              error="rawpy is not installed; install project requirements")
+        return MetadataResult(
+            "failed",
+            media_kind="image",
+            error="rawpy is not installed; install project requirements",
+        )
     try:
         with rawpy.imread(path) as raw:
             sizes = raw.sizes
@@ -164,14 +193,21 @@ def extract_raw_metadata(path):
             if timestamp:
                 capture = datetime.fromtimestamp(timestamp, UTC).isoformat()
             return MetadataResult(
-                "ok", "image", os.path.splitext(path)[1][1:].upper(),
-                sizes.width, sizes.height, capture_date=capture,
+                "ok",
+                "image",
+                os.path.splitext(path)[1][1:].upper(),
+                sizes.width,
+                sizes.height,
+                capture_date=capture,
                 capture_date_source="rawpy:timestamp" if capture else None,
             )
     except Exception as error:  # noqa: BLE001 - One file failing must never abort the scan.
-        return MetadataResult("failed", media_kind="image",
-                              error=f"Could not decode RAW image: {error}",
-                              retryable=isinstance(error, PermissionError))
+        return MetadataResult(
+            "failed",
+            media_kind="image",
+            error=f"Could not decode RAW image: {error}",
+            retryable=isinstance(error, PermissionError),
+        )
 
 
 def _text(value):
@@ -188,8 +224,7 @@ def _capture_date(exif):
         exif_ifd = exif.get_ifd(0x8769)  # the "Exif" sub-block
     except Exception:  # noqa: BLE001 - One file failing must never abort the scan.
         exif_ifd = {}
-    for tag, source in ((0x9003, "exif:DateTimeOriginal"),
-                        (0x9004, "exif:DateTimeDigitized")):
+    for tag, source in ((0x9003, "exif:DateTimeOriginal"), (0x9004, "exif:DateTimeDigitized")):
         raw = _text(exif_ifd.get(tag))
         if raw:
             try:
@@ -212,30 +247,58 @@ def extract_image_metadata(path):
             with Image.open(path) as img:
                 fmt = img.format
                 if fmt not in IMAGE_FORMATS:
-                    return MetadataResult("unsupported", detected_format=fmt,
-                                          error=f"Actual format is {fmt}, not supported")
+                    return MetadataResult(
+                        "unsupported",
+                        detected_format=fmt,
+                        error=f"Actual format is {fmt}, not supported",
+                    )
                 width, height = img.size
                 exif = img.getexif()
                 orientation = exif.get(0x0112)
                 capture, source = _capture_date(exif)
                 return MetadataResult(
-                    "ok", "image", fmt, width, height, None, None, capture, source,
-                    _text(exif.get(0x010F)), _text(exif.get(0x0110)),
+                    "ok",
+                    "image",
+                    fmt,
+                    width,
+                    height,
+                    None,
+                    None,
+                    capture,
+                    source,
+                    _text(exif.get(0x010F)),
+                    _text(exif.get(0x0110)),
                     orientation if isinstance(orientation, int) else None,
                 )
     except UnidentifiedImageError:
         return MetadataResult("failed", error="Not a readable image (corrupt or wrong format)")
     except Exception as e:  # noqa: BLE001 - One file failing must never abort the scan.
-        return MetadataResult("failed", error=f"Could not read metadata: {e}",
-                              retryable=isinstance(e, PermissionError))
+        return MetadataResult(
+            "failed",
+            error=f"Could not read metadata: {e}",
+            retryable=isinstance(e, PermissionError),
+        )
 
 
 # ----- videos -----
 def _run_ffprobe(exe, path, cancel_check):
-    cmd = [exe, "-v", "error", "-print_format", "json",
-           "-show_format", "-show_streams", "-i", path]  # a list: no shell, no quoting issues
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            creationflags=subprocess.CREATE_NO_WINDOW)
+    cmd = [
+        exe,
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        "-i",
+        path,
+    ]  # a list: no shell, no quoting issues
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
     deadline = time.monotonic() + FFPROBE_TIMEOUT
     while True:
         try:
@@ -268,9 +331,11 @@ def extract_video_metadata(path, cancel_check):
     except MetadataCancelled:
         raise
     except Exception as e:  # noqa: BLE001 - One file failing must never abort the scan.
-        return MetadataResult("failed", error=f"ffprobe failed: {e}",
-                              retryable=isinstance(e, (TimeoutError, PermissionError,
-                                                       FileNotFoundError)))
+        return MetadataResult(
+            "failed",
+            error=f"ffprobe failed: {e}",
+            retryable=isinstance(e, (TimeoutError, PermissionError, FileNotFoundError)),
+        )
     if code != 0:
         first = (err.decode("utf-8", "ignore").strip().splitlines() or ["unknown error"])[0]
         return MetadataResult("failed", error=f"Not readable media: {first}")
@@ -280,9 +345,14 @@ def extract_video_metadata(path, cancel_check):
         return MetadataResult("failed", error="ffprobe returned unreadable output")
 
     streams = data.get("streams", [])
-    video = next((s for s in streams
-                  if s.get("codec_type") == "video"
-                  and not s.get("disposition", {}).get("attached_pic")), None)
+    video = next(
+        (
+            s
+            for s in streams
+            if s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic")
+        ),
+        None,
+    )
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
     if video is None and audio is None:
         return MetadataResult("unsupported", error="No audio or video stream found")
@@ -299,21 +369,24 @@ def extract_video_metadata(path, cancel_check):
         capture, source = None, None
 
     return MetadataResult(
-        status="ok", media_kind="video" if video else "audio",
+        status="ok",
+        media_kind="video" if video else "audio",
         detected_format=fmt.get("format_name"),
         width=video.get("width") if video else None,
         height=video.get("height") if video else None,
-        duration_seconds=_float(fmt.get("duration")) or
-                         _float((video or audio).get("duration")),
+        duration_seconds=_float(fmt.get("duration")) or _float((video or audio).get("duration")),
         video_codec=video.get("codec_name") if video else None,
-        capture_date=capture, capture_date_source=source,
+        capture_date=capture,
+        capture_date_source=source,
         camera_make=_text(tags.get("com.apple.quicktime.make")),
         camera_model=_text(tags.get("com.apple.quicktime.model")),
         audio_codec=audio.get("codec_name") if audio else None,
-        audio_sample_rate=int(audio["sample_rate"]) if audio and
-                          str(audio.get("sample_rate", "")).isdigit() else None,
+        audio_sample_rate=int(audio["sample_rate"])
+        if audio and str(audio.get("sample_rate", "")).isdigit()
+        else None,
         audio_channels=audio.get("channels") if audio else None,
         audio_channel_layout=_text(audio.get("channel_layout")) if audio else None,
-        audio_bit_rate=int(audio["bit_rate"]) if audio and
-                      str(audio.get("bit_rate", "")).isdigit() else None,
+        audio_bit_rate=int(audio["bit_rate"])
+        if audio and str(audio.get("bit_rate", "")).isdigit()
+        else None,
     )
