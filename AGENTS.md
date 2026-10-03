@@ -26,12 +26,13 @@ Work in this repository root. Ignore any other copies of SIFT.
 | 0 | Baseline; checklist items remain | Product and architecture planning |
 | 1 | Done | Safe scan and persisted inventory |
 | 2 | Done | Metadata and fingerprints; see the accepted cache limitation below |
-| 3 | Not started | Scope requires user approval |
+| 3 | In progress | Read-only exact-duplicate groups from current successful SHA-256 fingerprints |
 
 Keep every phase status identical in this file and `docs/development/ROADMAP.md`.
 Statuses change only with explicit user approval; never auto-advance a phase.
-Phase 3 remains `Not started` until its scope is approved. Run
-`python scripts/check_phase_status.py` after changing either status table. The
+Phase 3 scope is approved: exact-duplicate groups use successful current SHA-256
+fingerprints only; results are read-only, with no file operations or visual-similarity
+matching. Run `python scripts/check_phase_status.py` after changing either status table. The
 `phase-1-complete` and `phase-2-complete` tags are historical markers: never move
 or delete tags.
 
@@ -103,6 +104,14 @@ or delete tags.
   lines 94 and 108) may mislabel database errors as per-file failures. A
   narrowing proposal exists; do not remove the catches. One file failing must
   never abort the scan.
+
+## Phase verification protocol
+
+- At phase review, run `python -m unittest discover -s tests -v` and `python scripts/verify_phase.py`; if sandbox-blocked, request approval outside it, and if refused or still blocked, report exactly what was blocked and stop without editing tests.
+- Create/delete fixtures only under this repo's `test_data_auto/`; never touch the real database or anything outside the repo.
+- Before proposing Done, run verification and review safety: originals read-only; links including selected root not followed; per-file error isolation; no network or GPS; no stale cache reuse.
+- After checks pass, propose status changes, ROADMAP.md and CHANGELOG.md entries, commit message options, and the tag command; wait for explicit approval. Never mark Done without approval or commit, push, or tag.
+- State what only the user can verify: launching the real window, responsiveness during a large scan, and behavior with real phone files.
 
 ## Definition of done
 

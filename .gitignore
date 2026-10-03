@@ -220,4 +220,5 @@ __marimo__/
 
 *.db
 test_data/
+test_data_auto/
 tests_tmp/
