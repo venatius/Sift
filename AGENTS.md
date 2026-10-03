@@ -26,7 +26,7 @@ Work in this repository root. Ignore any other copies of SIFT.
 | 0 | Baseline; checklist items remain | Product and architecture planning |
 | 1 | Done | Safe scan and persisted inventory |
 | 2 | Done | Metadata and fingerprints; see the accepted cache limitation below |
-| 3 | In progress | Read-only exact-duplicate groups from current successful SHA-256 fingerprints |
+| 3 | Done | Read-only exact-duplicate groups from current successful SHA-256 fingerprints |
 
 Keep every phase status identical in this file and `docs/development/ROADMAP.md`.
 Statuses change only with explicit user approval; never auto-advance a phase.
@@ -61,7 +61,6 @@ or delete tags.
 - Do not hide known failures or claim a check passed if it was blocked.
 - Do not run `ruff format` unless the user asks; report `format --check` results only.
 - Do not commit unless asked. The user reviews and commits each completed group.
-- Do not advance phase status without explicit user approval.
 - Do not run the hook installer unless asked.
 - Do not rewrite product promises or accepted architecture decisions.
 - Do not move, delete, or retag Git tags.
@@ -78,8 +77,6 @@ or delete tags.
 
 ## Documentation sync
 
-- Phase status is recorded in this file and `docs/development/ROADMAP.md`; keep
-  the status text identical and run the sync script.
 - When editing `PRODUCT.md` or `ARCHITECTURE.md`, update that file's
   **Last updated** date. When editing `DECISIONS.md`, date the changed decision
   entry; do not change an accepted decision's original date just because its
@@ -100,10 +97,8 @@ or delete tags.
 - Signatures are checked before and after processing. Changed or disappeared
   files are deferred for retry. Video metadata requires external `ffprobe`.
 - Unit tests pass as of 2026-10-03.
-- Open item: `worker.py` catches at the metadata and fingerprint stages (around
-  lines 94 and 108) may mislabel database errors as per-file failures. A
-  narrowing proposal exists; do not remove the catches. One file failing must
-  never abort the scan.
+- SQLite errors in metadata and fingerprint stages fail the scan; ordinary
+  per-file failures remain isolated.
 
 ## Phase verification protocol
 

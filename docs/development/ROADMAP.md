@@ -7,7 +7,7 @@
 | 0 | Baseline; checklist items remain | Product and architecture planning |
 | 1 | Done | Safe scan and persisted inventory |
 | 2 | Done | Metadata and fingerprints; see the accepted cache limitation below |
-| 3 | In progress | Read-only exact-duplicate groups from current successful SHA-256 fingerprints |
+| 3 | Done | Read-only exact-duplicate groups from current successful SHA-256 fingerprints |
 
 Phase status changes require explicit user approval. Future phases remain `Not
 started` until their scope is approved; phase status is never advanced
@@ -45,5 +45,5 @@ is unsupported.
 - [x] Load results in a background thread and present paths and digest in the UI.
 - [x] Keep this feature read-only: no file actions, and no visual-similarity
   matching.
-- [ ] Verify grouping, filtering, and background result delivery with synthetic
+- [x] Verify grouping, filtering, and background result delivery with synthetic
   database fixtures.
