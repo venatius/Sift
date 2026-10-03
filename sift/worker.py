@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import threading
 import time
 from dataclasses import replace
@@ -91,7 +92,9 @@ class ScanWorker(QObject):
         try:
             if not self._do_metadata(conn, file_id, item, summary):
                 return False
-        except Exception as error:
+        except sqlite3.Error:
+            raise
+        except Exception as error:  # noqa: BLE001 - Isolate unexpected per-file metadata failures.
             result = metadata.MetadataResult("failed", error=f"Metadata error: {error}",
                                              retryable=True)
             name, version = metadata.extractor_info(metadata.kind_for(item.path))
@@ -105,7 +108,9 @@ class ScanWorker(QObject):
         try:
             if not self._do_fingerprint(conn, file_id, item, summary, total):
                 return False
-        except Exception as error:
+        except sqlite3.Error:
+            raise
+        except Exception as error:  # noqa: BLE001 - Isolate unexpected per-file hashing failures.
             message = f"Fingerprint error: {error}"
             database.save_fingerprint(conn, file_id, "", item.size, item.modified,
                                       item.modified_ns, status="failed", error=message)

@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
+from PySide6.QtCore import Qt, QThread
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -237,6 +238,147 @@ class PhaseTwoTests(unittest.TestCase):
         conn = database.connect(self.db_path)
         self.assertEqual(conn.execute("SELECT status FROM fingerprints").fetchone()[0], "failed")
         conn.close()
+
+    def test_metadata_error_isolated_to_one_file(self):
+        bad_path = self.root / "bad.bin"
+        good_path = self.root / "good.bin"
+        bad_path.write_bytes(b"bad fixture")
+        good_path.write_bytes(b"good fixture")
+        original_extract = metadata.extract
+
+        def fail_one_metadata(path, kind, cancel_check):
+            if path == str(bad_path):
+                raise RuntimeError("metadata fixture failure")
+            return original_extract(path, kind, cancel_check)
+
+        with patch.object(metadata, "extract", side_effect=fail_one_metadata):
+            result = self.run_worker()
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["meta_failed"], 1)
+        self.assertEqual(result["fp_done"], 2)
+        conn = database.connect(self.db_path)
+        rows = conn.execute(
+            """
+            SELECT files.path, media_metadata.status
+            FROM files JOIN media_metadata ON media_metadata.file_id = files.id
+            ORDER BY files.path
+            """
+        ).fetchall()
+        conn.close()
+        self.assertEqual(
+            {row["path"]: row["status"] for row in rows},
+            {str(bad_path): "failed", str(good_path): "unsupported"},
+        )
+
+    def test_metadata_database_error_fails_scan(self):
+        (self.root / "one.bin").write_bytes(b"fixture")
+        with patch.object(
+            database, "get_metadata", side_effect=sqlite3.OperationalError("metadata db fault")
+        ):
+            result = self.run_worker()
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["meta_failed"], 0)
+        self.assertTrue(
+            any(path == "(scan stopped unexpectedly)" for path, _ in result["errors"])
+        )
+
+    def test_fingerprint_error_isolated_to_one_file(self):
+        bad_path = self.root / "bad.bin"
+        good_path = self.root / "good.bin"
+        bad_path.write_bytes(b"bad fixture")
+        good_path.write_bytes(b"good fixture")
+        original_hash = fingerprint.sha256_file
+
+        def fail_one_fingerprint(path, should_stop=None, progress_callback=None):
+            if path == str(bad_path):
+                raise RuntimeError("fingerprint fixture failure")
+            return original_hash(path, should_stop, progress_callback)
+
+        with patch.object(fingerprint, "sha256_file", side_effect=fail_one_fingerprint):
+            result = self.run_worker()
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["fp_failed"], 1)
+        self.assertEqual(result["fp_done"], 1)
+        conn = database.connect(self.db_path)
+        rows = conn.execute(
+            """
+            SELECT files.path, fingerprints.status
+            FROM files JOIN fingerprints ON fingerprints.file_id = files.id
+            ORDER BY files.path
+            """
+        ).fetchall()
+        conn.close()
+        self.assertEqual(
+            {row["path"]: row["status"] for row in rows},
+            {str(bad_path): "failed", str(good_path): "ok"},
+        )
+
+    def test_fingerprint_database_error_fails_scan(self):
+        (self.root / "one.bin").write_bytes(b"fixture")
+        with patch.object(
+            database,
+            "get_fingerprint",
+            side_effect=sqlite3.OperationalError("fingerprint db fault"),
+        ):
+            result = self.run_worker()
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["fp_failed"], 0)
+        self.assertTrue(
+            any(path == "(scan stopped unexpectedly)" for path, _ in result["errors"])
+        )
+
+    def test_database_and_finish_errors_close_connection_and_finish_thread(self):
+        (self.root / "one.bin").write_bytes(b"fixture")
+        connections = []
+
+        def capture_connection(path):
+            conn = sqlite3.connect(path, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            connections.append(conn)
+            return conn
+
+        worker = ScanWorker(str(self.root), self.db_path)
+        thread = QThread()
+        worker.moveToThread(thread)
+        summaries = []
+        worker.scan_done.connect(summaries.append, Qt.ConnectionType.DirectConnection)
+        worker.scan_done.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+        thread.finished.connect(worker.deleteLater)
+        thread.started.connect(worker.run)
+
+        with patch.object(database, "connect", side_effect=capture_connection), \
+                patch.object(
+                    database,
+                    "get_metadata",
+                    side_effect=sqlite3.OperationalError("metadata db fault"),
+                ), \
+                patch.object(
+                    database,
+                    "finish_scan",
+                    side_effect=sqlite3.OperationalError("finish db fault"),
+                ):
+            thread.start()
+            finished = thread.wait(5000)
+
+        self.assertTrue(finished, "worker QThread did not finish within five seconds")
+        self.assertFalse(thread.isRunning())
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(summaries[0]["status"], "failed")
+        self.assertTrue(
+            any(path == "(scan stopped unexpectedly)" for path, _ in summaries[0]["errors"])
+        )
+        self.assertTrue(
+            any(path == "(could not save scan status)" for path, _ in summaries[0]["errors"])
+        )
+        self.assertEqual(len(connections), 1)
+        with self.assertRaises(sqlite3.ProgrammingError):
+            connections[0].execute("SELECT 1")
+        thread.deleteLater()
 
     def test_changed_during_hash_is_not_saved_as_success(self):
         path = self.root / "changing.bin"
