@@ -2,19 +2,22 @@
 
 import hashlib
 import io
+import os
 import sqlite3
 import tempfile
 import time
+import tracemalloc
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from sift import database, image_analysis, image_store, visual_match
 from sift.image_browser import ImageBrowser
-from sift.image_worker import prepare
+from sift.image_worker import ImageWorker, prepare
 from sift.worker import ScanWorker
 
 
@@ -201,6 +204,169 @@ class ImageReviewTests(unittest.TestCase):
             self.assertGreater(file_id, 0)
         finally:
             browser.reject()
+
+    def test_stress_ten_thousand_saved_candidates_have_bounded_results(self):
+        file_id = self.matching_fixture()
+        conn = database.connect(self.db_path)
+        try:
+            reference = conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
+            for index in range(10_000):
+                candidate_id = conn.execute(
+                    """INSERT INTO files(root_id,path,size,modified,modified_ns,status,last_seen)
+                       VALUES (?,?,?,?,?,'ok',0)""",
+                    (
+                        reference["root_id"],
+                        str(self.root / f"stress-{index:05}.png"),
+                        reference["size"],
+                        reference["modified"],
+                        reference["modified_ns"],
+                    ),
+                ).lastrowid
+                digest = f"{index:064x}"
+                conn.execute(
+                    """INSERT INTO fingerprints
+                       SELECT ?, ?, input_size,input_modified,input_modified_ns,
+                              algorithm,algorithm_version,status,error,computed_at
+                       FROM fingerprints WHERE file_id = ?""",
+                    (candidate_id, digest, file_id),
+                )
+                conn.execute(
+                    """INSERT INTO image_features
+                       SELECT ?,version,input_size,input_modified_ns,?,'ok',NULL,
+                              thumbnail,dhash,red,green,blue,width,height,low_detail
+                       FROM image_features WHERE file_id = ?""",
+                    (candidate_id, digest, file_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        conn = database.connect_readonly(self.db_path)
+        tracemalloc.start()
+        started = time.monotonic()
+        try:
+            result = visual_match.find_matches(conn, file_id)
+            _, peak = tracemalloc.get_traced_memory()
+            self.assertEqual(result["matched"], 10_001)
+            self.assertEqual(len(result["matches"]), 100)
+            self.assertTrue(result["truncated"])
+            self.assertLess(peak, 12 * 1024 * 1024)
+            rows, more = image_store.browse(conn)
+            self.assertEqual(len(rows), 60)
+            self.assertTrue(more)
+            print(
+                f"Phase 4 stress: 10,001 candidates, {time.monotonic() - started:.3f}s, "
+                f"Python peak {peak / 1024:.1f} KiB; 100 results, 60-row page"
+            )
+        finally:
+            tracemalloc.stop()
+            conn.close()
+
+    def test_stress_background_batch_reuses_previews_and_keeps_event_loop_live(self):
+        paths = [self.picture(f"batch-{index:03}.png", (128, 96)) for index in range(120)]
+        before = [
+            (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
+            for path in paths
+        ]
+        self.scan()
+        ticks = []
+        timer = QTimer()
+        timer.timeout.connect(lambda: ticks.append(time.monotonic()))
+        timer.start(5)
+        worker = ImageWorker(self.db_path, "prepare")
+        results = []
+        errors = []
+        worker.result_ready.connect(results.append)
+        worker.failed.connect(errors.append)
+        started = time.monotonic()
+        worker.start()
+        try:
+            self.wait_for(lambda: not worker.isRunning(), timeout=45)
+            self.assertEqual(errors, [])
+            self.assertEqual(results[0]["prepared"], 120)
+            self.assertGreater(len(ticks), 1)
+            self.assertEqual(prepare(self.db_path)["reused"], 120)
+            self.assertEqual(
+                before,
+                [
+                    (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
+                    for path in paths
+                ],
+            )
+            print(
+                f"Phase 4 batch: 120 images, {time.monotonic() - started:.3f}s, "
+                f"{len(ticks)} UI timer ticks; all originals preserved"
+            )
+        finally:
+            timer.stop()
+            worker.cancel()
+            worker.wait(45_000)
+
+    def test_animation_rejected_and_gps_ifd_never_traversed(self):
+        animated = self.root / "animated.png"
+        Image.new("RGB", (8, 8), "red").save(
+            animated, save_all=True, append_images=[Image.new("RGB", (8, 8), "blue")]
+        )
+        with self.assertRaisesRegex(ValueError, "Animated"):
+            self.analyze(animated)
+        path = self.picture("gps-source.jpg", image_format="JPEG")
+        exif = Image.Exif()
+        exif[0x0112] = 6
+        exif[0x8825] = {1: "N", 2: (1, 2, 3)}
+        with Image.open(path) as image:
+            image.save(self.root / "gps-exif.jpg", exif=exif)
+        path = self.root / "gps-exif.jpg"
+        with patch.object(Image.Exif, "get_ifd", side_effect=AssertionError("GPS IFD read")):
+            features = self.analyze(path)
+        with Image.open(io.BytesIO(features.thumbnail)) as thumbnail:
+            self.assertEqual(thumbnail.getexif(), {})
+
+    def test_cancel_keeps_completed_preview_and_restart_reuses_it(self):
+        for index in range(3):
+            self.picture(f"resume-{index}.png")
+        self.scan()
+        saved = []
+        original_save = image_store.save
+
+        def save_then_cancel(*args, **kwargs):
+            original_save(*args, **kwargs)
+            saved.append(True)
+
+        with (
+            patch.object(image_store, "save", side_effect=save_then_cancel),
+            self.assertRaises(image_analysis.AnalysisCancelled),
+        ):
+            prepare(self.db_path, cancel=lambda: bool(saved))
+        summary = prepare(self.db_path)
+        self.assertEqual((summary["reused"], summary["prepared"]), (1, 2))
+
+    def test_main_window_waits_for_browser_job_on_close(self):
+        with patch.dict(os.environ, {"LOCALAPPDATA": str(Path(self.temp.name) / "appdata")}):
+            from sift import image_worker, ui
+
+        started = []
+
+        def waiting_prepare(db_path, **options):
+            started.append(True)
+            while not options["cancel"]():
+                time.sleep(0.005)
+            raise image_analysis.AnalysisCancelled
+
+        with (
+            patch.object(ui, "DB_PATH", self.db_path),
+            patch.object(ui, "LEGACY_DB_PATH", str(Path(self.temp.name) / "absent.db")),
+        ):
+            window = ui.MainWindow()
+            window.show()
+            window.browse_library()
+            browser = window.image_browser
+            self.wait_for(lambda: browser.worker is None)
+            with patch.object(image_worker, "prepare", side_effect=waiting_prepare):
+                browser.prepare_images()
+                self.wait_for(lambda: bool(started))
+                window.close()
+                self.wait_for(lambda: window.image_browser is None)
+            self.assertFalse(window.isVisible())
+            window.deleteLater()
 
     def test_decode_content_orientation_transparency_and_original_preservation(self):
         path = self.picture("disguised.xyz", (400, 200), "JPEG")

@@ -119,6 +119,16 @@ def create_fixtures(verification):
     (LIBRARY_ROOT / ".hidden-fixture").write_bytes(b"hidden synthetic file\n")
     Image.new("RGB", (3, 2), (32, 96, 160)).save(LIBRARY_ROOT / "tiny.jpg", format="JPEG")
     Image.new("RGB", (2, 3), (160, 96, 32)).save(LIBRARY_ROOT / "tiny.png", format="PNG")
+    pattern = Image.new("RGB", (64, 48))
+    pattern.putdata(
+        [
+            ((x * 13 + y * 7) % 256, (x * 3) % 256, (y * 5) % 256)
+            for y in range(48)
+            for x in range(64)
+        ]
+    )
+    pattern.save(LIBRARY_ROOT / "visual-original.png")
+    pattern.save(LIBRARY_ROOT / "visual-reencoded.png", compress_level=0)
     (LIBRARY_ROOT / "corrupt.jpg").write_bytes(b"not a JPEG image")
     (LIBRARY_ROOT / "corrupt.dng").write_bytes(b"not a RAW image")
     (LIBRARY_ROOT / "unsupported.xyz").write_bytes(b"unsupported synthetic bytes")
@@ -535,6 +545,7 @@ def verify_behavior(verification, fixtures, before_snapshot):
                 f"empty file count={refreshed_empty_count}",
             )
 
+    verify_images(verification, ui.DB_PATH)
     after_snapshot = fixture_snapshot(LIBRARY_ROOT)
     unchanged_paths = set(before_snapshot) - {fixtures["pair_a"]}
     unchanged_ok = all(
@@ -604,6 +615,56 @@ def verify_behavior(verification, fixtures, before_snapshot):
         f"Final library database file rows={len(final_rows)}; "
         f"fingerprint status counts={final_fp_counts}."
     )
+
+
+def verify_images(verification, db_path):
+    """Exercise optional Phase 4 features before the source-preservation assertion."""
+    import io
+
+    from PIL import Image
+
+    if not (ROOT / "sift" / "image_worker.py").is_file():
+        verification.skip("Phase 4 image review", "skipped: not implemented")
+        return
+    from sift import database, image_store, visual_match
+    from sift.image_worker import prepare
+
+    first = prepare(db_path)
+    second = prepare(db_path)
+    check(
+        verification,
+        "Phase 4 preview preparation and cache reuse",
+        first["prepared"] == 4
+        and second["reused"] == 4
+        and first["failed"] >= 1
+        and first["unsupported"] >= 1,
+        f"first={first}; second={second}",
+    )
+    conn = database.connect_readonly(db_path)
+    try:
+        rows, more = image_store.browse(conn, status="ready")
+        clean = True
+        for row in rows:
+            with Image.open(io.BytesIO(row["thumbnail"])) as preview:
+                clean = clean and not preview.info and max(preview.size) <= 256
+        check(
+            verification,
+            "Phase 4 saved metadata-free bounded previews",
+            len(rows) == 4 and not more and clean,
+            f"ready previews={len(rows)}; metadata-free and <=256 pixels={clean}",
+        )
+        original = next(row for row in rows if row["path"].endswith("visual-original.png"))
+        result = visual_match.find_matches(conn, original["id"])
+        check(
+            verification,
+            "Phase 4 visually identical re-encoding is a candidate",
+            len(result["matches"]) == 1
+            and result["matches"][0]["path"].endswith("visual-reencoded.png")
+            and result["matches"][0]["distance"] == 0,
+            f"candidates={len(result['matches'])}; matched={result['matched']}",
+        )
+    finally:
+        conn.close()
 
 
 def command_environment():

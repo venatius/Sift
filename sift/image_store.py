@@ -1,6 +1,5 @@
 """Optional versioned image features, leaving the core schema contract intact."""
 
-import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
@@ -40,7 +39,7 @@ def install(db_path):
     try:
         if not installed(conn):
             backup_path = Path(db_path).with_name(f"image-features-{uuid4().hex}.bak")
-            backup = sqlite3.connect(backup_path)
+            backup = database.connect(backup_path)
             try:
                 conn.backup(backup)
             finally:

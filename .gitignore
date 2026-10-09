@@ -219,6 +219,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 *.db
+*.bak
 test_data/
 test_data_auto/
 tests_tmp/

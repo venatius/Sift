@@ -54,17 +54,17 @@ is unsupported.
 Scope approved on 2026-10-08: both thumbnail browsing with library filters and
 local JPEG/PNG visual-similarity candidates. Completion still requires Elan's approval.
 
-- [ ] Build versioned image features and small metadata-free thumbnails with Pillow.
-- [ ] Keep image reads local, read-only, link-aware and bounded; report corrupt,
+- [x] Build versioned image features and small metadata-free thumbnails with Pillow.
+- [x] Keep image reads local, read-only, link-aware and bounded; report corrupt,
   changed, missing, animated, oversized and unsupported inputs per file.
-- [ ] Preserve existing inventory and fingerprints with an additive, backed-up,
+- [x] Preserve existing inventory and fingerprints with an additive, backed-up,
   idempotent feature-store extension; invalidate stale signatures and versions.
-- [ ] Browse saved library records by folder, path text and image status with pagination.
-- [ ] Show explainable similarity pairs separately from exact duplicates, with
+- [x] Browse saved library records by folder, path text and image status with pagination.
+- [x] Show explainable similarity pairs separately from exact duplicates, with
   explicit uncertainty and limits; do not silently imply complete results when capped.
-- [ ] Run decoding and database queries in cancellable background work; keep
+- [x] Run decoding and database queries in cancellable background work; keep
   close/cancel safe, and preserve completed results across restart.
-- [ ] Verify migrations, cache refresh/reuse, safety, failures, cancellation,
+- [x] Verify migrations, cache refresh/reuse, safety, failures, cancellation,
   synthetic stress cases and offscreen UI integration; record commands and limitations.
 - [ ] Obtain the user's final real-window check and approval before marking Done.
 

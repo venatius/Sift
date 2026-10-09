@@ -27,7 +27,34 @@ The app stores its SQLite library under `%LOCALAPPDATA%\Sift\sift.db`. Scanning
 and media analysis are local and read-only. Set `LOCALAPPDATA` to a temporary
 directory when running isolated tests.
 
-## Current handoff
+## Image review (Phase 4 implementation)
+
+Use **Browse Library** after scanning. Choose a saved folder, path text or preview
+status, then **Apply filters**. **Prepare JPEG/PNG previews** reads eligible saved
+files locally and stores small previews; **Rebuild saved previews** bypasses the
+preview cache. Use **Verify all file contents** during scanning to bypass the
+documented fingerprint cache limitation before preparing again.
+
+Select a ready image and choose **Find possible visual matches for selected image**.
+Matching uses saved features across all saved folders, or the selected folder.
+Exact SHA-256 duplicates and flat images are excluded here. Results are possible
+matches, not proof: crops, rotations and colour edits may be missed. The best
+100 candidates are shown, with an explicit notice when more qualify. Neither
+browsing nor matching checks live media paths; rescan and prepare to refresh them.
+
+Preview decoding supports single-frame JPEG/PNG content, including EXIF orientation
+and transparency, up to 32 MiB and 20 million pixels. Previews are at most 256 pixels
+on the longest side and retain no source metadata. RAW/video rendering is not
+included. Cancellation is checked between operations; a native image decode or
+initial database backup must return before cancellation can finish.
+
+As of 2026-10-09, Phase 4 implementation is awaiting the user's final real-window,
+large-library responsiveness and real-phone-file checks. It remains **In progress**.
+Run `python scripts/verify_phase.py` for isolated synthetic verification. The app's
+real database is not used by that protocol. See the dated review records under
+`docs/development/` for commands, outcomes and limitations.
+
+## Historical handoff
 
 As of 2026-10-03:
 

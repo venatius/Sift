@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 4 image review: browse saved files with folder, path and preview-status
+  filters, generate small JPEG/PNG previews, and review possible visual matches
+  separately from exact duplicates. Matches are estimates based on saved data;
+  missing files may remain listed, and capped results are clearly labeled.
+- Background preview and matching jobs with cancellation and safe window closing.
+- Versioned preview storage with a database backup before its first installation.
+- Synthetic Phase 4 safety, failure, cache, UI and stress verification.
+
 - Repository workflow guidance and a Phase 2 status synchronization check.
 - Ruff and editor configuration for development.
 - Tests for corrupt supported RAW files and unsupported file extensions.
