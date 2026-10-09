@@ -53,6 +53,7 @@ class ImageBrowser(QDialog):
         self.search.setPlaceholderText("Filter saved paths (literal text)")
         self.apply_btn = QPushButton("Apply filters")
         self.prepare_btn = QPushButton("Prepare JPEG/PNG previews")
+        self.similar_btn = QPushButton("Find possible visual matches for selected image")
         self.force_check = QCheckBox("Rebuild saved previews")
         self.cancel_btn = QPushButton("Cancel current job")
         self.previous_btn = QPushButton("Previous page")
@@ -73,6 +74,11 @@ class ImageBrowser(QDialog):
         self.details = QPlainTextEdit()
         self.details.setReadOnly(True)
         self.details.setMaximumHeight(140)
+        self.matches = QTreeWidget()
+        self.matches.setHeaderLabels(["Hash distance / 64", "Possible match", "Library root"])
+        self.matches.setIconSize(QSize(64, 64))
+        self.matches.setColumnWidth(0, 170)
+        self.matches.setColumnWidth(1, 540)
         filters = QHBoxLayout()
         for control in (self.root_filter, self.status_filter, self.search, self.apply_btn):
             filters.addWidget(control)
@@ -88,11 +94,14 @@ class ImageBrowser(QDialog):
         layout.addLayout(actions)
         layout.addWidget(self.status_label)
         layout.addWidget(self.tree)
+        layout.addWidget(self.similar_btn)
+        layout.addWidget(self.matches)
         layout.addWidget(self.details)
         layout.addLayout(pages)
         self.apply_btn.clicked.connect(self.load_first_page)
         self.search.returnPressed.connect(self.load_first_page)
         self.prepare_btn.clicked.connect(self.prepare_images)
+        self.similar_btn.clicked.connect(self.find_similar)
         self.cancel_btn.clicked.connect(self.cancel_job)
         self.previous_btn.clicked.connect(self.previous_page)
         self.next_btn.clicked.connect(self.next_page)
@@ -128,6 +137,13 @@ class ImageBrowser(QDialog):
         self.previous_btn.setEnabled(not busy and applied and bool(self._history))
         self.next_btn.setEnabled(not busy and applied and self._has_more)
         self.tree.setEnabled(not busy)
+        self.similar_btn.setEnabled(
+            not busy
+            and applied
+            and bool(self.tree.selectedItems())
+            and self.tree.selectedItems()[0].data(0, Qt.ItemDataRole.UserRole)["image_status"]
+            == "ready"
+        )
 
     def start_job(self, operation, **options):
         if self.worker is not None or self._closing:
@@ -161,6 +177,7 @@ class ImageBrowser(QDialog):
             self.load_page(self._history[-1], self._history[:-1], self._filters)
 
     def prepare_images(self):
+        self.matches.clear()
         self.status_label.setText("Preparing images from this folder filter...")
         self.details.setPlainText(
             "Preparation reads eligible saved files in the folder filter; text and preview-status "
@@ -169,6 +186,15 @@ class ImageBrowser(QDialog):
         self.start_job(
             "prepare", root_id=self.root_filter.currentData(), force=self.force_check.isChecked()
         )
+
+    def find_similar(self):
+        items = self.tree.selectedItems()
+        if not items or self.worker is not None or not self.similar_btn.isEnabled():
+            return
+        row = items[0].data(0, Qt.ItemDataRole.UserRole)
+        self.matches.clear()
+        self.status_label.setText("Comparing saved visual features...")
+        self.start_job("similarity", file_id=row["id"], root_id=self._filters["root_id"])
 
     def cancel_job(self):
         if self.worker is not None:
@@ -190,6 +216,10 @@ class ImageBrowser(QDialog):
             lines.extend(f"{path}: {message}" for path, message in result["errors"])
             self.details.setPlainText("\n".join(lines))
             return
+        if self._operation == "similarity":
+            self.show_matches(result)
+            return
+        self.matches.clear()
         self._rows = result["rows"]
         self._has_more = result["has_more"]
         self._after, self._history, self._filters = self._pending_page
@@ -217,6 +247,7 @@ class ImageBrowser(QDialog):
         self.details.setPlainText("Select a record to see its saved path and any preview error.")
 
     def show_selection(self):
+        self.matches.clear()
         items = self.tree.selectedItems()
         if not items:
             return
@@ -224,6 +255,35 @@ class ImageBrowser(QDialog):
         self.details.setPlainText(
             f"Path: {row['path']}\nRoot: {row['root']}\nSaved size: {row['size']} bytes\n"
             f"Preview: {row['image_status']}\n{row['error'] or ''}"
+        )
+        if self.worker is None:
+            self.set_busy(False)
+
+    def show_matches(self, result):
+        self.matches.clear()
+        for row in result["matches"]:
+            item = QTreeWidgetItem([str(row["distance"]), row["path"], row["root"]])
+            item.setToolTip(1, f"RGB mean difference: {row['colour_delta']} / 255")
+            pixmap = QPixmap()
+            if row["thumbnail"] and pixmap.loadFromData(row["thumbnail"], "PNG"):
+                item.setIcon(1, QIcon(pixmap))
+            self.matches.addTopLevelItem(item)
+        self.status_label.setText(
+            f"{result['matched']} possible matches across {result['examined']} compared records"
+        )
+        limit = (
+            "Showing the best 100 matches; additional matches are omitted.\n"
+            if result["truncated"]
+            else ""
+        )
+        self.details.setPlainText(
+            f"Selected image: {result['reference']['path']}\n{limit}"
+            "Possible matches are estimates, not proof of duplicates. Lower hash distance "
+            "means more similar edge patterns (maximum shown: 8 of 64 bits), with similar "
+            "average colour and aspect ratio. Flat images are excluded. Exact SHA-256 "
+            "duplicates are excluded here; use Find Exact Duplicates for those.\n"
+            "Results use saved features only. Rescan and prepare images to refresh missing "
+            "or changed files. Crops, rotations and colour edits can be missed."
         )
 
     def on_failed(self, message):

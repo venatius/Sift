@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import UnidentifiedImageError
 from PySide6.QtCore import QThread, Signal
 
-from . import database, image_analysis, image_store
+from . import database, image_analysis, image_store, visual_match
 
 
 def prepare(db_path, root_id=None, force=False, cancel=lambda: False, progress=None):
@@ -93,6 +93,10 @@ class ImageWorker(QThread):
                 if self.operation == "browse":
                     rows, has_more = image_store.browse(conn, **self.options)
                     result = {"rows": rows, "has_more": has_more, "roots": image_store.roots(conn)}
+                elif self.operation == "similarity":
+                    result = visual_match.find_matches(
+                        conn, **self.options, cancel=self._cancel.is_set
+                    )
                 else:
                     raise ValueError("Unknown image operation")
             image_analysis.checkpoint(self._cancel.is_set)

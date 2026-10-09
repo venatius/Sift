@@ -12,7 +12,7 @@ from unittest.mock import patch
 from PIL import Image
 from PySide6.QtWidgets import QApplication
 
-from sift import database, image_analysis, image_store
+from sift import database, image_analysis, image_store, visual_match
 from sift.image_browser import ImageBrowser
 from sift.image_worker import prepare
 from sift.worker import ScanWorker
@@ -69,6 +69,138 @@ class ImageReviewTests(unittest.TestCase):
         return image_analysis.analyze(
             str(path), str(self.root), info.st_size, info.st_mtime_ns, **kwargs
         )
+
+    def matching_fixture(self):
+        original = self.picture("original.png")
+        (self.root / "exact.png").write_bytes(original.read_bytes())
+        with Image.open(original) as image:
+            image.save(self.root / "reencoded.png", compress_level=0)
+        Image.new("RGB", (64, 48), "white").save(self.root / "flat.png")
+        self.scan()
+        prepare(self.db_path)
+        conn = database.connect_readonly(self.db_path)
+        try:
+            row = conn.execute("SELECT id FROM files WHERE path = ?", (str(original),)).fetchone()
+            return row[0]
+        finally:
+            conn.close()
+
+    def test_similarity_excludes_exact_and_flat_and_never_opens_sources(self):
+        file_id = self.matching_fixture()
+        for path in self.root.iterdir():
+            path.unlink()
+        conn = database.connect_readonly(self.db_path)
+        try:
+            with (
+                patch("builtins.open", side_effect=AssertionError("media read")),
+                patch.object(
+                    image_analysis.os, "stat", side_effect=AssertionError("filesystem check")
+                ),
+            ):
+                result = visual_match.find_matches(conn, file_id)
+            self.assertEqual(
+                [Path(row["path"]).name for row in result["matches"]], ["reencoded.png"]
+            )
+            self.assertEqual(result["matches"][0]["distance"], 0)
+            with self.assertRaises(sqlite3.OperationalError):
+                conn.execute("DELETE FROM image_features")
+            conn.rollback()
+            with self.assertRaises(image_analysis.AnalysisCancelled):
+                visual_match.find_matches(conn, file_id, cancel=lambda: True)
+            self.assertFalse(conn.in_transaction)
+        finally:
+            conn.close()
+
+    def test_similarity_rejects_stale_features_and_colour_aspect_hash_outliers(self):
+        file_id = self.matching_fixture()
+        for assignment in (
+            "version = 'old'",
+            "input_sha256 = 'old'",
+            "input_size = 0",
+            "dhash = 'ffffffffffffffff'",
+            "red = 999",
+            "height = 1",
+        ):
+            conn = database.connect(self.db_path)
+            try:
+                column = assignment.split(" = ")[0]
+                before = list(conn.execute("SELECT file_id, " + column + " FROM image_features"))
+                conn.execute(
+                    "UPDATE image_features SET " + assignment + " WHERE file_id != ?", (file_id,)
+                )
+                conn.commit()
+                self.assertEqual(visual_match.find_matches(conn, file_id)["matches"], [])
+            finally:
+                for row in before:
+                    conn.execute(
+                        "UPDATE image_features SET " + column + " = ? WHERE file_id = ?",
+                        (row[1], row[0]),
+                    )
+                conn.commit()
+                conn.close()
+
+    def test_similarity_cross_root_deduplication_limit_and_midstream_cancel(self):
+        file_id = self.matching_fixture()
+        nested = self.root / "nested"
+        nested.mkdir()
+        with Image.open(self.root / "original.png") as image:
+            image.save(nested / "candidate.png", compress_level=1)
+        self.scan()
+        worker = ScanWorker(str(nested), self.db_path)
+        worker.run()
+        prepare(self.db_path)
+        conn = database.connect_readonly(self.db_path)
+        try:
+            result = visual_match.find_matches(conn, file_id)
+            self.assertEqual(result["matched"], 2)
+            self.assertEqual(len({row["path"] for row in result["matches"]}), 2)
+            with patch.object(visual_match, "MAX_RESULTS", 1):
+                result = visual_match.find_matches(conn, file_id)
+            self.assertEqual(len(result["matches"]), 1)
+            self.assertTrue(result["truncated"])
+            nested_id = conn.execute(
+                "SELECT id FROM roots WHERE path = ?", (str(nested),)
+            ).fetchone()[0]
+            candidate_id = conn.execute(
+                "SELECT id FROM files WHERE root_id = ?", (nested_id,)
+            ).fetchone()[0]
+            self.assertEqual(
+                visual_match.find_matches(conn, candidate_id, nested_id)["matches"], []
+            )
+            calls = []
+
+            def cancel():
+                calls.append(True)
+                return len(calls) > 2
+
+            with self.assertRaises(image_analysis.AnalysisCancelled):
+                visual_match.find_matches(conn, file_id, cancel=cancel)
+            self.assertFalse(conn.in_transaction)
+        finally:
+            conn.close()
+
+    def test_similarity_ui_displays_candidates_without_accumulating_results(self):
+        file_id = self.matching_fixture()
+        browser = ImageBrowser(self.db_path)
+        browser.open()
+        try:
+            browser.load_first_page()
+            self.wait_for(lambda: browser.worker is None)
+            for index in range(browser.tree.topLevelItemCount()):
+                item = browser.tree.topLevelItem(index)
+                if str(self.root / "original.png") == item.text(2):
+                    browser.tree.setCurrentItem(item)
+            self.assertTrue(browser.similar_btn.isEnabled())
+            for _ in range(2):
+                browser.find_similar()
+                self.wait_for(lambda: browser.worker is None)
+                self.assertEqual(browser.matches.topLevelItemCount(), 1)
+            self.assertIn("saved features only", browser.details.toPlainText())
+            browser.tree.setCurrentItem(browser.tree.topLevelItem(0))
+            self.assertEqual(browser.matches.topLevelItemCount(), 0)
+            self.assertGreater(file_id, 0)
+        finally:
+            browser.reject()
 
     def test_decode_content_orientation_transparency_and_original_preservation(self):
         path = self.picture("disguised.xyz", (400, 200), "JPEG")

@@ -182,7 +182,7 @@ def browse(conn, root_id=None, text="", status="all", after=0):
     return rows[:PAGE_SIZE], len(rows) > PAGE_SIZE
 
 
-def visual_rows(conn, root_id=None):
+def visual_rows(conn, root_id=None, file_id=None):
     if not installed(conn):
         return iter(())
     return conn.execute(
@@ -197,6 +197,7 @@ def visual_rows(conn, root_id=None):
         + FEATURE_CURRENT
         + """
            AND v.status = 'ok' AND v.low_detail = 0
-           AND (? IS NULL OR f.root_id = ?) ORDER BY f.id""",
-        (VERSION, root_id, root_id),
+           AND (? IS NULL OR f.root_id = ?)
+           AND (? IS NULL OR f.id = ?) ORDER BY f.path, f.id""",
+        (VERSION, root_id, root_id, file_id, file_id),
     )
