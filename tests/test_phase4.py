@@ -1,0 +1,253 @@
+"""Synthetic Phase 4 regressions; no real user library is accessed."""
+
+import hashlib
+import io
+import sqlite3
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from PIL import Image
+
+from sift import database, image_analysis, image_store
+from sift.image_worker import prepare
+from sift.worker import ScanWorker
+
+
+class ImageReviewTests(unittest.TestCase):
+    def setUp(self):
+        sandbox = Path(__file__).resolve().parents[1] / "test_data_auto"
+        sandbox.mkdir(exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(dir=sandbox)
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "images"
+        self.root.mkdir()
+        self.db_path = str(Path(self.temp.name) / "library.db")
+        conn = database.connect(self.db_path)
+        database.init_db(conn)
+        conn.close()
+
+    def picture(self, name="pattern.png", size=(64, 48), image_format="PNG"):
+        path = self.root / name
+        image = Image.new("RGB", size)
+        image.putdata(
+            [
+                ((x * 13 + y * 7) % 256, (x * 3) % 256, (y * 5) % 256)
+                for y in range(size[1])
+                for x in range(size[0])
+            ]
+        )
+        image.save(path, format=image_format)
+        return path
+
+    def scan(self):
+        worker = ScanWorker(str(self.root), self.db_path)
+        summaries = []
+        worker.scan_done.connect(summaries.append)
+        worker.run()
+        self.assertEqual(summaries[0]["status"], "completed")
+        return summaries[0]
+
+    def analyze(self, path, **kwargs):
+        info = path.stat()
+        return image_analysis.analyze(
+            str(path), str(self.root), info.st_size, info.st_mtime_ns, **kwargs
+        )
+
+    def test_decode_content_orientation_transparency_and_original_preservation(self):
+        path = self.picture("disguised.xyz", (400, 200), "JPEG")
+        before = (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
+        result = self.analyze(path, orientation=6)
+        self.assertEqual((result.width, result.height), (128, 256))
+        with Image.open(io.BytesIO(result.thumbnail)) as preview:
+            self.assertEqual(preview.info, {})
+        self.assertEqual(
+            before, (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
+        )
+        transparent = self.root / "transparent.png"
+        Image.new("RGBA", (10, 10), (255, 0, 0, 0)).save(transparent)
+        result = self.analyze(transparent)
+        self.assertEqual((result.red, result.green, result.blue), (255, 255, 255))
+        self.assertTrue(result.low_detail)
+
+    def test_decode_limits_and_cancellation(self):
+        path = self.picture()
+        with patch.object(image_analysis, "MAX_PIXELS", 100), self.assertRaises(ValueError):
+            self.analyze(path)
+        with patch.object(image_analysis, "MAX_BYTES", 1), self.assertRaises(ValueError):
+            self.analyze(path)
+        with self.assertRaises(image_analysis.AnalysisCancelled):
+            self.analyze(path, cancel=lambda: True)
+        path.write_bytes(b"corrupt image")
+        with self.assertRaises(OSError):
+            self.analyze(path)
+
+    def test_root_and_ancestor_links_are_rejected(self):
+        path = self.picture()
+        link = self.root.parent / "linked-root"
+        try:
+            link.symlink_to(self.root, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(str(error))
+        with self.assertRaises(OSError):
+            image_analysis.source_signature(str(link / path.name), str(link))
+        nested = self.root / "nested-link"
+        nested.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaises(OSError):
+            image_analysis.source_signature(str(nested / path.name), str(self.root))
+
+    def test_embedded_orientation_and_metadata_not_copied_through_preparation(self):
+        path = self.root / "oriented.xyz"
+        image = Image.new("RGB", (40, 20), "red")
+        exif = Image.Exif()
+        exif[274] = 6
+        exif[271] = "Synthetic camera"
+        image.save(path, format="JPEG", exif=exif)
+        self.scan()
+        self.assertEqual(prepare(self.db_path)["prepared"], 1)
+        conn = database.connect_readonly(self.db_path)
+        row = image_store.browse(conn)[0][0]
+        conn.close()
+        with Image.open(io.BytesIO(row["thumbnail"])) as thumbnail:
+            self.assertEqual(thumbnail.size, (20, 40))
+            self.assertEqual(thumbnail.info, {})
+            self.assertEqual(len(thumbnail.getexif()), 0)
+
+    def test_changed_decode_identity_race_and_late_cancellation_are_not_saved(self):
+        path = self.picture()
+        self.scan()
+        original_thumbnail = Image.Image.thumbnail
+
+        def mutate_after_thumbnail(image, *args, **kwargs):
+            original_thumbnail(image, *args, **kwargs)
+            path.write_bytes(b"changed during decode")
+
+        with patch.object(Image.Image, "thumbnail", new=mutate_after_thumbnail):
+            result = prepare(self.db_path)
+        self.assertEqual(result["failed"], 1)
+        conn = database.connect_readonly(self.db_path)
+        self.assertIsNone(image_store.browse(conn)[0][0]["thumbnail"])
+        conn.close()
+
+        self.picture()
+        self.scan()
+        signature = image_analysis.source_signature(str(path), str(self.root))
+        with (
+            patch.object(
+                image_analysis,
+                "source_signature",
+                return_value=(*signature[:3], signature[3] + 1),
+            ),
+            self.assertRaises(OSError),
+        ):
+            self.analyze(path)
+
+        checks = []
+
+        def late_cancel():
+            checks.append(True)
+            return len(checks) >= 4
+
+        with self.assertRaises(image_analysis.AnalysisCancelled):
+            prepare(self.db_path, force=True, cancel=late_cancel)
+        conn = database.connect_readonly(self.db_path)
+        self.assertEqual(
+            conn.execute("SELECT COUNT(*) FROM image_features WHERE status = 'ok'").fetchone()[0], 0
+        )
+        conn.close()
+
+    def test_corrupt_supported_and_unsupported_statuses_are_separate(self):
+        (self.root / "corrupt.jpg").write_bytes(b"not JPEG")
+        (self.root / "unknown.xyz").write_bytes(b"unsupported")
+        self.scan()
+        summary = prepare(self.db_path)
+        self.assertEqual((summary["failed"], summary["unsupported"]), (1, 1))
+        conn = database.connect_readonly(self.db_path)
+        self.assertEqual(len(image_store.browse(conn, status="failed")[0]), 1)
+        self.assertEqual(len(image_store.browse(conn, status="unsupported")[0]), 1)
+        conn.close()
+
+    def test_migration_backup_is_idempotent_and_preserves_core(self):
+        self.picture()
+        self.scan()
+        conn = image_store.install(self.db_path)
+        self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 3)
+        self.assertEqual(conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)
+        count = database.count_files(conn)
+        conn.close()
+        backups = list(Path(self.temp.name).glob("*.bak"))
+        self.assertEqual(len(backups), 1)
+        old = database.connect(str(backups[0]))
+        self.assertFalse(image_store.installed(old))
+        self.assertEqual(database.count_files(old), count)
+        old.close()
+        conn = image_store.install(self.db_path)
+        self.assertEqual(database.count_files(conn), count)
+        self.assertEqual(len(list(Path(self.temp.name).glob("*.bak"))), 1)
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO image_features VALUES (999,'v',1,1,'x','ok',"
+                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)"
+            )
+        conn.close()
+
+    def test_cache_reuse_refresh_version_and_verified_digest(self):
+        path = self.picture()
+        self.scan()
+        self.assertEqual(prepare(self.db_path)["prepared"], 1)
+        self.assertEqual(prepare(self.db_path)["reused"], 1)
+        self.assertEqual(prepare(self.db_path, force=True)["prepared"], 1)
+        conn = database.connect(self.db_path)
+        conn.execute("UPDATE image_features SET version = 'obsolete'")
+        conn.commit()
+        conn.close()
+        self.assertEqual(prepare(self.db_path)["prepared"], 1)
+        conn = database.connect(self.db_path)
+        conn.execute("UPDATE fingerprints SET sha256 = ?", ("f" * 64,))
+        conn.commit()
+        self.assertEqual(image_store.browse(conn)[0][0]["image_status"], "pending")
+        conn.close()
+        self.assertEqual(prepare(self.db_path)["prepared"], 1)
+        path.write_bytes(b"changed")
+        self.assertEqual(prepare(self.db_path)["failed"], 1)
+        conn = database.connect(self.db_path)
+        self.assertIsNone(image_store.browse(conn)[0][0]["thumbnail"])
+        conn.close()
+
+    def test_per_file_failure_and_missing_source_do_not_abort_preparation(self):
+        missing = self.picture("missing.png")
+        self.picture("good.png")
+        self.scan()
+        missing.unlink()
+        result = prepare(self.db_path)
+        self.assertEqual((result["prepared"], result["failed"]), (1, 1))
+        with (
+            patch.object(image_store, "save", side_effect=sqlite3.OperationalError("disk")),
+            self.assertRaises(sqlite3.OperationalError),
+        ):
+            prepare(self.db_path, force=True)
+
+    def test_browse_combined_filters_literal_search_and_pagination(self):
+        self.picture("100%_photo.png")
+        self.picture("other.png")
+        self.scan()
+        conn = database.connect_readonly(self.db_path)
+        rows, more = image_store.browse(conn, text="%_")
+        self.assertEqual(len(rows), 1)
+        self.assertFalse(more)
+        self.assertEqual(rows[0]["image_status"], "pending")
+        conn.close()
+        prepare(self.db_path)
+        conn = database.connect_readonly(self.db_path)
+        root_id = image_store.roots(conn)[0]["id"]
+        rows, more = image_store.browse(conn, root_id=root_id, text="%_", status="ready")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(image_store.browse(conn, root_id=-1)[0], [])
+        with patch.object(image_store, "PAGE_SIZE", 1):
+            first, more = image_store.browse(conn)
+            self.assertTrue(more)
+            second, more = image_store.browse(conn, after=first[0]["id"])
+            self.assertFalse(more)
+            self.assertNotEqual(first[0]["id"], second[0]["id"])
+        conn.close()
