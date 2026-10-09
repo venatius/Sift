@@ -48,8 +48,9 @@ on the longest side and retain no source metadata. RAW/video rendering is not
 included. Cancellation is checked between operations; a native image decode or
 initial database backup must return before cancellation can finish.
 
-As of 2026-10-09, Phase 4 implementation is awaiting the user's final real-window,
-large-library responsiveness and real-phone-file checks. It remains **In progress**.
+Phase 4 is **Done**, approved by Elan on 2026-10-09. Verification covers synthetic
+fixtures and native Windows smoke checks; real-phone-file behavior and
+large-library responsiveness remain outside the recorded automated evidence.
 Run `python scripts/verify_phase.py` for isolated synthetic verification. The app's
 real database is not used by that protocol. See the dated review records under
 `docs/development/` for commands, outcomes and limitations.

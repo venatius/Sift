@@ -27,7 +27,7 @@ Work in this repository root. Ignore any other copies of SIFT.
 | 1 | Done | Safe scan and persisted inventory |
 | 2 | Done | Metadata and fingerprints; see the accepted cache limitation below |
 | 3 | Done | Read-only exact-duplicate groups from current successful SHA-256 fingerprints |
-| 4 | In progress | JPEG/PNG thumbnail browsing, library filters, and visual-similarity review |
+| 4 | Done | JPEG/PNG thumbnail browsing, library filters, and visual-similarity review |
 
 Keep every phase status identical in this file and `docs/development/ROADMAP.md`.
 Statuses change only with explicit user approval; never auto-advance a phase.

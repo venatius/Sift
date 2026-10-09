@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Phase 4 marked Done with Elan's explicit approval on 2026-10-09, following
+  recorded synthetic verification and native Windows smoke checks.
 - Recorded Phase 2 metadata, fingerprint, and RAW format verification details.
 
 ### Fixed

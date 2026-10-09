@@ -8,7 +8,7 @@
 | 1 | Done | Safe scan and persisted inventory |
 | 2 | Done | Metadata and fingerprints; see the accepted cache limitation below |
 | 3 | Done | Read-only exact-duplicate groups from current successful SHA-256 fingerprints |
-| 4 | In progress | JPEG/PNG thumbnail browsing, library filters, and visual-similarity review |
+| 4 | Done | JPEG/PNG thumbnail browsing, library filters, and visual-similarity review |
 
 Phase status changes require explicit user approval. Future phases remain `Not
 started` until their scope is approved; phase status is never advanced
@@ -52,7 +52,7 @@ is unsupported.
 ## Phase 4: image browsing and visual-similarity review
 
 Scope approved on 2026-10-08: both thumbnail browsing with library filters and
-local JPEG/PNG visual-similarity candidates. Completion still requires Elan's approval.
+local JPEG/PNG visual-similarity candidates. Elan approved completion on 2026-10-09.
 
 - [x] Build versioned image features and small metadata-free thumbnails with Pillow.
 - [x] Keep image reads local, read-only, link-aware and bounded; report corrupt,
@@ -66,7 +66,11 @@ local JPEG/PNG visual-similarity candidates. Completion still requires Elan's ap
   close/cancel safe, and preserve completed results across restart.
 - [x] Verify migrations, cache refresh/reuse, safety, failures, cancellation,
   synthetic stress cases and offscreen UI integration; record commands and limitations.
-- [ ] Obtain the user's final real-window check and approval before marking Done.
+- [x] Obtain the user's explicit completion approval before marking Done (2026-10-09).
+
+Automated verification and native Windows smoke checks are recorded in
+`2026-10-09-phase4-final-review-01.md`. Approval does not add evidence of real-phone
+or large-library performance; those limitations remain as documented.
 
 Implementation stages: feature storage/analysis; filtered browsing; similarity
 review; stress verification and documentation. Each stage receives a focused commit.
