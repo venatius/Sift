@@ -4,18 +4,33 @@ import hashlib
 import io
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
+from PySide6.QtWidgets import QApplication
 
 from sift import database, image_analysis, image_store
+from sift.image_browser import ImageBrowser
 from sift.image_worker import prepare
 from sift.worker import ScanWorker
 
 
 class ImageReviewTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.qt_app = QApplication.instance() or QApplication([])
+
+    def wait_for(self, condition, timeout=10):
+        deadline = time.monotonic() + timeout
+        while not condition() and time.monotonic() < deadline:
+            self.qt_app.processEvents()
+            time.sleep(0.005)
+        self.qt_app.processEvents()
+        self.assertTrue(condition(), "background UI operation exceeded its deadline")
+
     def setUp(self):
         sandbox = Path(__file__).resolve().parents[1] / "test_data_auto"
         sandbox.mkdir(exist_ok=True)
@@ -143,14 +158,18 @@ class ImageReviewTests(unittest.TestCase):
         ):
             self.analyze(path)
 
-        checks = []
+        decoded = []
 
-        def late_cancel():
-            checks.append(True)
-            return len(checks) >= 4
+        def cancel_after_thumbnail(image, *args, **kwargs):
+            original_thumbnail(image, *args, **kwargs)
+            decoded.append(True)
 
-        with self.assertRaises(image_analysis.AnalysisCancelled):
-            prepare(self.db_path, force=True, cancel=late_cancel)
+        with (
+            patch.object(Image.Image, "thumbnail", new=cancel_after_thumbnail),
+            self.assertRaises(image_analysis.AnalysisCancelled),
+        ):
+            prepare(self.db_path, force=True, cancel=lambda: bool(decoded))
+        self.assertTrue(decoded)
         conn = database.connect_readonly(self.db_path)
         self.assertEqual(
             conn.execute("SELECT COUNT(*) FROM image_features WHERE status = 'ok'").fetchone()[0], 0
@@ -251,3 +270,110 @@ class ImageReviewTests(unittest.TestCase):
             self.assertFalse(more)
             self.assertNotEqual(first[0]["id"], second[0]["id"])
         conn.close()
+
+    def test_background_browser_filters_and_preparation_display(self):
+        self.picture("100%_photo.png")
+        self.picture("other.png")
+        self.scan()
+        browser = ImageBrowser(self.db_path)
+        browser.open()
+        try:
+            browser.load_first_page()
+            self.assertFalse(browser.apply_btn.isEnabled())
+            self.wait_for(lambda: browser.worker is None)
+            self.assertEqual(browser.tree.topLevelItemCount(), 2)
+            browser.prepare_images()
+            self.wait_for(lambda: browser.worker is None)
+            self.assertIn("Preparation complete", browser.details.toPlainText())
+            browser.search.setText("%_")
+            browser.status_filter.setCurrentIndex(browser.status_filter.findData("ready"))
+            browser.load_first_page()
+            self.wait_for(lambda: browser.worker is None)
+            self.assertEqual(browser.tree.topLevelItemCount(), 1)
+            self.assertFalse(browser.tree.topLevelItem(0).icon(0).isNull())
+            browser.tree.setCurrentItem(browser.tree.topLevelItem(0))
+            self.assertIn("100%_photo.png", browser.details.toPlainText())
+        finally:
+            browser.reject()
+
+    def test_browser_close_cancels_active_job_and_keeps_worker_alive_until_finished(self):
+        from sift import image_worker
+
+        started = []
+
+        def waiting_prepare(db_path, **options):
+            started.append(True)
+            while not options["cancel"]():
+                time.sleep(0.005)
+            raise image_analysis.AnalysisCancelled
+
+        browser = ImageBrowser(self.db_path)
+        browser.open()
+        with patch.object(image_worker, "prepare", side_effect=waiting_prepare):
+            browser.prepare_images()
+            self.wait_for(lambda: bool(started))
+            browser.reject()
+            self.assertIsNotNone(browser.worker)
+            self.wait_for(lambda: browser.worker is None)
+        self.assertFalse(browser.isVisible())
+
+    def test_browser_database_failure_is_visible_and_controls_recover(self):
+        browser = ImageBrowser(str(Path(self.temp.name) / "does-not-exist.db"))
+        browser.open()
+        browser.load_first_page()
+        self.wait_for(lambda: browser.worker is None)
+        self.assertEqual(browser.status_label.text(), "Image job failed")
+        self.assertTrue(browser.details.toPlainText())
+        self.assertTrue(browser.apply_btn.isEnabled())
+        browser.reject()
+
+    def test_browser_failed_page_and_changed_filter_preserve_pagination(self):
+        self.picture("first.png")
+        self.picture("second.png")
+        self.scan()
+        browser = ImageBrowser(self.db_path)
+        browser.open()
+        try:
+            with patch.object(image_store, "PAGE_SIZE", 1):
+                browser.load_first_page()
+                self.wait_for(lambda: browser.worker is None)
+                first_id = browser._rows[0]["id"]
+                self.assertTrue(browser.next_btn.isEnabled())
+                with patch.object(
+                    image_store, "browse", side_effect=sqlite3.OperationalError("fault")
+                ):
+                    browser.next_page()
+                    self.wait_for(lambda: browser.worker is None)
+                self.assertEqual(browser._after, 0)
+                self.assertEqual(browser._history, [])
+                self.assertEqual(browser._rows[0]["id"], first_id)
+                with patch.object(
+                    image_store, "browse", side_effect=image_analysis.AnalysisCancelled
+                ):
+                    browser.next_page()
+                    self.wait_for(lambda: browser.worker is None)
+                self.assertEqual(browser._after, 0)
+                browser.next_page()
+                self.wait_for(lambda: browser.worker is None)
+                second_id = browser._rows[0]["id"]
+                self.assertNotEqual(first_id, second_id)
+                for error in (
+                    sqlite3.OperationalError("fault"),
+                    image_analysis.AnalysisCancelled(),
+                ):
+                    with patch.object(image_store, "browse", side_effect=error):
+                        browser.previous_page()
+                        self.wait_for(lambda: browser.worker is None)
+                    self.assertEqual(browser._rows[0]["id"], second_id)
+                    self.assertEqual(browser._history, [0])
+                browser.previous_page()
+                self.wait_for(lambda: browser.worker is None)
+                self.assertEqual(browser._rows[0]["id"], first_id)
+                browser.search.setText("second")
+                self.assertFalse(browser.next_btn.isEnabled())
+                browser.load_first_page()
+                self.wait_for(lambda: browser.worker is None)
+                self.assertIn("second.png", browser._rows[0]["path"])
+                self.assertEqual(browser._history, [])
+        finally:
+            browser.reject()

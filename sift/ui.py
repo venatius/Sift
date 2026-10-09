@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from . import database
 from .duplicates import DuplicateWorker
+from .image_browser import ImageBrowser
 from .worker import ScanWorker
 
 LOCAL_APP_DATA = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
         self.thread = None
         self.worker = None
         self.duplicate_worker = None
+        self.image_browser = None
         self.paused = False
 
         self.folder_label = QLabel("No folder selected")
@@ -43,6 +45,7 @@ class MainWindow(QMainWindow):
         self.pause_btn = QPushButton("Pause")
         self.cancel_btn = QPushButton("Cancel")
         self.duplicates_btn = QPushButton("Find Exact Duplicates (All Folders)")
+        self.browse_btn = QPushButton("Browse Library")
         self.status_label = QLabel("Ready")
         self.count_label = QLabel("Files found: 0")
         self.saved_label = QLabel("")
@@ -57,6 +60,7 @@ class MainWindow(QMainWindow):
             self.pause_btn,
             self.cancel_btn,
             self.duplicates_btn,
+            self.browse_btn,
         ):
             buttons.addWidget(b)
 
@@ -83,6 +87,7 @@ class MainWindow(QMainWindow):
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.cancel_btn.clicked.connect(self.cancel_scan)
         self.duplicates_btn.clicked.connect(self.find_exact_duplicates)
+        self.browse_btn.clicked.connect(self.browse_library)
 
         self.set_scanning(False)
         self.init_database()
@@ -122,6 +127,20 @@ class MainWindow(QMainWindow):
         self.pause_btn.setEnabled(scanning)
         self.cancel_btn.setEnabled(scanning)
         self.duplicates_btn.setEnabled(not scanning)
+        self.browse_btn.setEnabled(not scanning)
+
+    def browse_library(self):
+        if self.image_browser is not None or self.thread is not None:
+            return
+        self.image_browser = ImageBrowser(DB_PATH, self)
+        self.image_browser.finished.connect(self.on_browser_finished)
+        self.image_browser.open()
+        self.image_browser.load_first_page()
+
+    def on_browser_finished(self):
+        browser = self.image_browser
+        self.image_browser = None
+        browser.deleteLater()
 
     # ----- user actions -----
     def choose_folder(self):
@@ -260,6 +279,11 @@ class MainWindow(QMainWindow):
         self.refresh_saved_count()
 
     def closeEvent(self, event):
+        if self.image_browser is not None and self.image_browser.worker is not None:
+            self.image_browser.finished.connect(self.close)
+            self.image_browser.reject()
+            event.ignore()
+            return
         if self.worker is not None:
             self.worker.cancel()
             self.thread.quit()
