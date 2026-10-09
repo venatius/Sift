@@ -16,7 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Background preview and matching jobs with cancellation and safe window closing.
 - Versioned preview storage with a database backup before its first installation.
 - Synthetic Phase 4 safety, failure, cache, UI and stress verification.
-
 - Repository workflow guidance and a Phase 2 status synchronization check.
 - Ruff and editor configuration for development.
 - Tests for corrupt supported RAW files and unsupported file extensions.
@@ -27,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refreshed the README with Windows setup, shipped features, saved-data limits,
+  verification commands and project links; preserved the old handoff separately.
+- Updated the repository map and generalized future-phase skill guidance.
 - Phase 4 marked Done with Elan's explicit approval on 2026-10-09, following
   recorded synthetic verification and native Windows smoke checks.
 - Recorded Phase 2 metadata, fingerprint, and RAW format verification details.

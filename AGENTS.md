@@ -13,6 +13,10 @@ Work in this repository root. Ignore any other copies of SIFT.
 | `sift/metadata.py` | Image, RAW, video, and audio metadata extraction |
 | `sift/fingerprint.py` | Incremental SHA-256 fingerprints |
 | `sift/database.py` | SQLite schema and library records |
+| `sift/duplicates.py` | Read-only exact groups and background query |
+| `sift/image_analysis.py`, `sift/image_store.py` | Safe JPEG/PNG features and cached previews |
+| `sift/image_worker.py`, `sift/image_browser.py`, `sift/visual_match.py` | Background image review and possible matches |
+| `tests/test_phase3.py`, `tests/test_phase4.py` | Duplicate and image-review regressions |
 | `tests/test_phase2.py` | Phase 2 unit tests and fixtures |
 | `tests_tmp/` | Temporary review harness and generated artifacts; do not change its harness expectations |
 | `docs/` | Product, architecture, decisions, and roadmap |
@@ -97,7 +101,7 @@ or delete tags.
   changes; `force_rehash` bypasses fingerprint reuse to verify file contents.
 - Signatures are checked before and after processing. Changed or disappeared
   files are deferred for retry. Video metadata requires external `ffprobe`.
-- Unit tests pass as of 2026-10-03.
+- Latest recorded verification: 55 tests passed on 2026-10-09; see the dated Phase 4 review.
 - SQLite errors in metadata and fingerprint stages fail the scan; ordinary
   per-file failures remain isolated.
 

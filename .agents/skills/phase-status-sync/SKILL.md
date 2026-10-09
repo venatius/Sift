@@ -6,8 +6,8 @@ description: Keep every phase status in AGENTS.md and the development roadmap sy
 # Phase status synchronization
 
 1. Treat user-approved statuses as authoritative. Do not infer completion or
-   automatically advance a phase. Phase 3 is `Not started` until its scope is
-   explicitly approved.
+   automatically advance a phase. A future phase remains `Not started` until its
+   scope is explicitly approved; read current tables instead of assuming a phase number.
 2. Keep the phase table in `AGENTS.md` identical to the one in
    `docs/development/ROADMAP.md`, including every phase number and status.
 3. Run `python scripts/check_phase_status.py` from the repository root after a

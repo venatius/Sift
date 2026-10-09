@@ -1,67 +1,132 @@
 # Sift
-Privacy-first local AI media organization
 
-## Development setup
+Local media inventory and duplicate review for Windows.
 
-Requires Python 3.11 or newer; tested on 3.13.3 only.
-Create and activate a virtual environment,
-then install the pinned Python dependencies with `python -m pip install -r requirements.txt`.
-Run the synthetic fixture suite with `python -m unittest discover -s tests -v`.
+Sift scans folders in place, saves an inventory, extracts available metadata,
+and helps you review exact duplicates and possible visual matches. Analysis
+never modifies, moves, renames or deletes originals. No account, media upload,
+GPS extraction or model download is needed for the implemented workflow.
 
-Video metadata requires the external `ffprobe` executable on `PATH`; it is part
-of FFmpeg and is not installed by the Python requirements. One Windows option
-is `winget install --id Gyan.FFmpeg --exact`. The Gyan.dev full builds are
-GPLv3-licensed; review the [build details](https://www.gyan.dev/ffmpeg/builds/)
-and [FFmpeg license information](https://ffmpeg.org/legal.html). Sift does not
-download or bundle FFmpeg. The current development environment uses
-`ffprobe 9.0.2-full_build-www.gyan.dev`.
+## Current handoff
 
-RAW metadata for DNG, NEF, and ARW files uses the pinned `rawpy` package and its
-LibRaw decoder. Sift reads dimensions and an available capture timestamp only;
-it does not render/demosaic RAW pixels. This explicit extension scope does not
-promise support for every camera RAW variant. Audio-only metadata uses ffprobe
-for audio streams in supported containers and common audio files. Results may
-include codec, duration, sample rate, channels/layout, and bit rate when present.
+**Phases 1–4 are Done.** Phase 4 completion was approved on 2026-10-09.
+This is a source-run development application; a packaged installer is not included.
+Classification, semantic search, people/event grouping and file operations are
+product plans, not shipped features. The next phase needs explicit scope approval.
 
-The app stores its SQLite library under `%LOCALAPPDATA%\Sift\sift.db`. Scanning
-and media analysis are local and read-only. Set `LOCALAPPDATA` to a temporary
-directory when running isolated tests.
+The latest recorded verification ran **55 unit tests successfully**, plus native
+Windows smoke checks and synthetic stress cases. The phase verifier recorded
+**29 passed, 0 failed, 1 skipped**: this Windows account could not make its test
+folder unreadable. Real-phone-file behavior and large-library responsiveness
+remain outside that evidence. See the [verification review](docs/development/2026-10-09-phase4-final-review-01.md)
+and [completion roadmap](docs/development/ROADMAP.md).
 
-## Image review (Phase 4 implementation)
+Current guidance lives here and in [AGENTS.md](AGENTS.md). Dated review reports
+record their state at the time; they do not override current phase tables.
+The [previous README handoff](docs/development/2026-10-09-readme-handoff-snapshot-01.md)
+is preserved separately. Recheck Git status and recent commits before resuming.
 
-Use **Browse Library** after scanning. Choose a saved folder, path text or preview
-status, then **Apply filters**. **Prepare JPEG/PNG previews** reads eligible saved
-files locally and stores small previews; **Rebuild saved previews** bypasses the
-preview cache. Use **Verify all file contents** during scanning to bypass the
-documented fingerprint cache limitation before preparing again.
+## Start on Windows
 
-Select a ready image and choose **Find possible visual matches for selected image**.
-Matching uses saved features across all saved folders, or the selected folder.
-Exact SHA-256 duplicates and flat images are excluded here. Results are possible
-matches, not proof: crops, rotations and colour edits may be missed. The best
-100 candidates are shown, with an explicit notice when more qualify. Neither
-browsing nor matching checks live media paths; rescan and prepare to refresh them.
+Requires Python 3.11 or newer; tested on 3.13.3 only. Python 3.13 is the documented
+development environment. Run these one at a time from the repository root:
 
-Preview decoding supports single-frame JPEG/PNG content, including EXIF orientation
-and transparency, up to 32 MiB and 20 million pixels. Previews are at most 256 pixels
-on the longest side and retain no source metadata. RAW/video rendering is not
-included. Cancellation is checked between operations; a native image decode or
-initial database backup must return before cancellation can finish.
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe main.py
+```
 
-Phase 4 is **Done**, approved by Elan on 2026-10-09. Verification covers synthetic
-fixtures and native Windows smoke checks; real-phone-file behavior and
-large-library responsiveness remain outside the recorded automated evidence.
-Run `python scripts/verify_phase.py` for isolated synthetic verification. The app's
-real database is not used by that protocol. See the dated review records under
-`docs/development/` for commands, outcomes and limitations.
+Create the environment only on a fresh checkout; reuse it on later launches.
+Using its interpreter explicitly avoids activating another copy's environment.
+Runtime dependencies are pinned in [requirements.txt](requirements.txt): PySide6,
+Pillow, pillow-heif and rawpy. Ruff is separate development tooling.
 
-## Historical handoff
+Video and audio metadata need an external `ffprobe` executable on `PATH`.
+Sift does not install, download or bundle FFmpeg. Without it, those extractions
+report per-file errors; other scan work continues. Format scope, component
+licenses and historical sample validation are recorded in [D-005](docs/decisions/DECISIONS.md#d-005-supported-formats-and-representative-collections).
+RAW metadata for DNG/NEF/ARW uses LibRaw through rawpy; no RAW rendering is included,
+and the recorded real-file ARW sample remains unverified.
 
-As of 2026-10-03:
+## Scan and review
 
-- Latest commit: `267cdeb` — “Fix remaining ruff findings” (2026-10-02).
-- Working tree: `AGENTS.md` had an uncommitted change when inspected. This handoff update also changes `README.md`; review both before committing. No commit was made.
-- Environment: `.venv/` exists, but this run did not validate its interpreter or dependencies.
-- Next action: review the two documentation changes, then verify `test_corrupt_raw_and_unsupported_extension_statuses` with the repository's full command: `python -m unittest discover -s tests -v`. This test still needs user verification; no tests were run during this handoff update.
+1. **Choose Folder**, then **Start Scan**. Each scan selects one root; saved roots
+   accumulate in the library. Pause or cancel scanning without losing saved results.
+2. **Find Exact Duplicates (All Folders)** groups successful saved SHA-256
+   fingerprints across all library folders. Empty files are counted separately.
+3. **Browse Library** displays saved paths, roots and previews in 60-record pages.
+   Choose a folder, literal path text or preview status, then **Apply filters**.
+4. **Prepare JPEG/PNG previews** reads eligible saved sources and stores previews.
+   Preparation follows the folder filter; path/status filters affect browsing only.
+   **Rebuild saved previews** bypasses successful preview reuse.
+5. Select a ready image and **Find possible visual matches for selected image**.
+   Matching covers all saved folders or the selected folder. It uses edge-hash
+   distance, average colour and aspect ratio, with the best 100 candidates shown.
+   Additional qualifying matches are explicitly reported as omitted.
 
-Before resuming later, check `git status --short` and `git log -1` and refresh this dated snapshot if the repository has changed. Phase status remains governed by this repository's `AGENTS.md` and `docs/development/ROADMAP.md`; Phase 3 requires Elan's explicit approval.
+Exact SHA-256 matches and flat images are excluded from visual candidates.
+These candidates are estimates, not proof: crops, rotations and colour edits
+may be missed. There are no file-changing actions in these views.
+
+## Saved data and limits
+
+- The database is `%LOCALAPPDATA%\Sift\sift.db`. Inventory, metadata, hashes,
+  image features and previews are stored there, outside scanned folders. First
+  image-feature installation makes a sibling `image-features-*.bak` database backup.
+- Browsing, exact duplicates and visual matching query saved data only, through
+  SQLite read-only connections. They do not check whether media still exists.
+  Rescan, then prepare previews to refresh changed or missing sources.
+- Fingerprint reuse can miss content changes preserving both size and modification
+  time. Enable **Verify all file contents (slower)** during scanning, then prepare
+  previews again to refresh dependent results.
+- Preview decoding accepts single-frame JPEG/PNG content up to 32 MiB and
+  20 million pixels. Previews are at most 256 pixels on the longest side, apply
+  orientation, flatten transparency and retain no source metadata. Other formats
+  can have metadata and fingerprints without image previews.
+- Links/reparse points, including the selected root, are rejected. Corrupt,
+  changed, missing, oversized and unsupported sources report per-file outcomes.
+- Background jobs cooperate with cancellation. A bounded native image decode
+  or the initial database backup must return before cancellation finishes.
+- Restart keeps completed results; scanning restarts at the selected root and
+  reuses eligible cached stages rather than resuming at an exact interrupted file.
+
+## Development checks
+
+Run from the repository root. The verifier creates synthetic fixtures and
+isolates app data and temporary files under ignored `test_data_auto/`:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/verify_phase.py
+```
+
+It captures unit tests, Ruff lint/format checks and phase-status synchronization,
+writes `test_data_auto/verify_report.md`, and exits non-zero on failure.
+It deletes and recreates its fixture folder; do not store personal files there.
+Ruff must already be installed in the development environment for its checks.
+
+Individual checks:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+.\.venv\Scripts\python.exe scripts/check_phase_status.py
+```
+
+## Project map
+
+| File | Role |
+| --- | --- |
+| `main.py`, `sift/ui.py` | Launch and main scan interface |
+| `sift/scanner.py`, `sift/worker.py` | Inventory and independent analysis stages |
+| `sift/metadata.py`, `sift/fingerprint.py` | Metadata and incremental SHA-256 |
+| `sift/database.py`, `sift/duplicates.py` | Library storage and exact groups |
+| `sift/image_analysis.py`, `sift/image_store.py` | Safe decoding and versioned previews |
+| `sift/image_worker.py`, `sift/image_browser.py` | Background image jobs and library review |
+| `sift/visual_match.py` | Possible visual matches over saved features |
+| `tests/`, `scripts/verify_phase.py` | Synthetic regressions and phase verification |
+
+See [product plans](docs/product/PRODUCT.md), [architecture baseline](docs/architecture/ARCHITECTURE.md),
+[decisions](docs/decisions/DECISIONS.md), [roadmap](docs/development/ROADMAP.md),
+[changelog](CHANGELOG.md) and the [Markdown review](docs/development/2026-10-09-documentation-review-01.md).
